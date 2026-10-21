@@ -8,13 +8,82 @@ CREATE UNIQUE INDEX one_active_session_per_slot
 ON public.parking_sessions (slot_id)
 WHERE exit_time IS NULL;
 
---VERIFYING TABLES--
-/*
 SELECT
-    (SELECT COUNT(*) FROM public.profiles) AS total_profiles,
-    (SELECT COUNT(*) FROM public.wedding_events) AS total_events,
-    (SELECT COUNT(*) FROM public.vehicles) AS total_vehicles,
-    (SELECT COUNT(*) FROM public.parking_slots) AS total_slots,
-    (SELECT COUNT(*) FROM public.parking_sessions) AS total_sessions,
-    (SELECT COUNT(*) FROM public.parking_events) AS total_audit_records;
-*/
+    tablename,
+    rowsecurity AS rls_enabled
+FROM pg_tables
+WHERE schemaname = 'public'
+  AND tablename IN (
+      'profiles',
+      'wedding_events',
+      'vehicles',
+      'parking_slots',
+      'parking_sessions',
+      'parking_events'
+  )
+ORDER BY tablename;
+
+SELECT indexname, indexdef
+FROM pg_indexes
+WHERE schemaname = 'public'
+  AND tablename = 'parking_sessions'
+  AND indexname IN (
+      'one_active_session_per_vehicle',
+      'one_active_session_per_slot'
+  )
+ORDER BY indexname;
+
+CREATE POLICY "Staff can read own profile"
+ON public.profiles
+FOR SELECT
+TO authenticated
+USING (id = (SELECT auth.uid()));
+
+CREATE POLICY "Staff can view wedding events"
+ON public.wedding_events
+FOR SELECT
+TO authenticated
+USING (
+    EXISTS (
+        SELECT 1
+        FROM public.profiles
+        WHERE profiles.id = (SELECT auth.uid())
+    )
+);
+
+CREATE POLICY "Staff can view vehicles"
+ON public.vehicles
+FOR SELECT
+TO authenticated
+USING (
+    EXISTS (
+        SELECT 1
+        FROM public.profiles
+        WHERE profiles.id = (SELECT auth.uid())
+    )
+);
+
+CREATE POLICY "Staff can view parking slots"
+ON public.parking_slots
+FOR SELECT
+TO authenticated
+USING (
+    EXISTS (
+        SELECT 1
+        FROM public.profiles
+        WHERE profiles.id = (SELECT auth.uid())
+    )
+);
+
+
+CREATE POLICY "Staff can view parking sessions"
+ON public.parking_sessions
+FOR SELECT
+TO authenticated
+USING (
+    EXISTS (
+        SELECT 1
+        FROM public.profiles
+        WHERE profiles.id = (SELECT auth.uid())
+    )
+);
