@@ -1,0 +1,414 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Wedding Parking</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>Smart Wedding Parking Management</h1>
+
+    <section id="login-section">
+        <h2>Staff Login</h2>
+
+        <form id="login-form">
+            <label for="email">Email</label>
+            <input
+                type="email"
+                id="email"
+                required
+                autocomplete="username"
+            >
+
+            <label for="password">Password</label>
+            <input
+                type="password"
+                id="password"
+                required
+                autocomplete="current-password"
+            >
+
+            <button type="submit">Sign In</button>
+        </form>
+    </section>
+
+    <p id="status">Please sign in with your staff account.</p>
+
+    
+<section id="dashboard" hidden>
+    <h2>Parking Dashboard</h2>
+    <p id="slot-count"></p>
+
+    <div class="legend">
+        <span><i class="dot available"></i> Available</span>
+        <span><i class="dot occupied"></i> Occupied</span>
+        <span><i class="dot unavailable"></i> Unusable</span>
+    </div>
+
+    <div id="parking-grid" class="parking-grid"></div>
+    
+<hr>
+
+<h2>Register Vehicle Entry</h2>
+<p>Enter the guest's vehicle details to assign a parking slot.</p>
+
+<form id="vehicle-entry-form">
+    <label for="registration-number">Vehicle Registration Number</label>
+    <input
+        type="text"
+        id="registration-number"
+        placeholder="e.g. KA01AB1234"
+        required
+        maxlength="20"
+    >
+
+    <label for="vehicle-type">Vehicle Type</label>
+    <select id="vehicle-type" required>
+        <option value="">Select vehicle type</option>
+        <option value="car">Car</option>
+        <option value="suv">SUV</option>
+        <option value="bike">Bike</option>
+        <option value="van">Van</option>
+        <option value="other">Other</option>
+    </select>
+
+    <label for="guest-name">Guest Name</label>
+    <input
+        type="text"
+        id="guest-name"
+        placeholder="Enter guest name"
+    >
+
+    <label for="guest-contact">Guest Contact (optional)</label>
+    <input
+        type="tel"
+        id="guest-contact"
+        placeholder="Enter contact number"
+    >
+
+    <button type="submit" id="register-vehicle-button">
+        Register and Assign Slot
+    </button>
+
+    <p id="entry-status" role="status"></p>
+</form>
+    
+<hr>
+
+<h2>Register Vehicle Exit</h2>
+<p>Enter the vehicle number to record its exit and free its parking slot.</p>
+
+<form id="vehicle-exit-form">
+    <label for="exit-registration-number">Vehicle Registration Number</label>
+    <input
+        type="text"
+        id="exit-registration-number"
+        placeholder="e.g. KA03MN5678"
+        required
+        maxlength="20"
+    >
+
+    <button type="submit" id="register-exit-button">
+        Record Vehicle Exit
+    </button>
+
+    <p id="exit-status" role="status"></p>
+</form>
+
+    <button id="logout-button">Sign Out</button>
+</section>
+
+    <script type="module">
+        import { supabase } from './app.js';
+
+        const status = document.getElementById('status');
+        const loginSection = document.getElementById('login-section');
+        const dashboard = document.getElementById('dashboard');
+        const loginForm = document.getElementById('login-form');
+
+        async function showDashboard(user) {
+            status.textContent = 'Checking staff profile...';
+
+            const { data: profile, error: profileError } =
+                await supabase
+                    .from('profiles')
+                    .select('full_name, role')
+                    .eq('id', user.id)
+                    .single();
+
+            if (profileError || !profile) {
+                status.textContent =
+                    'Could not load staff profile. Please contact the administrator.';
+                return;
+            }
+
+            loginSection.hidden = true;
+            dashboard.hidden = false;
+
+            status.textContent =
+                `Welcome, ${profile.full_name} (${profile.role})!`;
+
+            
+const { data: slots, error: slotsError } = await supabase
+    .from('parking_slots')
+    .select('slot_id, slot_number, status')
+    .order('slot_number');
+
+if (slotsError) {
+    document.getElementById('slot-count').textContent =
+        'Could not load parking slots: ' + slotsError.message;
+    return;
+}
+
+const { data: sessions, error: sessionsError } = await supabase
+    .from('parking_sessions')
+    .select('slot_id')
+    .is('exit_time', null);
+
+if (sessionsError) {
+    document.getElementById('slot-count').textContent =
+        'Could not load parking occupancy: ' + sessionsError.message;
+    return;
+}
+
+const occupiedSlots = new Set(sessions.map(s => s.slot_id));
+
+document.getElementById('slot-count').textContent =
+    `Total parking slots: ${slots.length}`;
+
+const grid = document.getElementById('parking-grid');
+grid.replaceChildren();
+
+slots.forEach(slot => {
+    const button = document.createElement('div');
+
+    const occupied = occupiedSlots.has(slot.slot_id);
+    const state = slot.status === 'unavailable'
+        ? 'unavailable'
+        : occupied ? 'occupied' : 'available';
+
+    button.className = `parking-slot ${state}`;
+    button.textContent = `P${slot.slot_number}`;
+
+    button.title = state.charAt(0).toUpperCase() + state.slice(1);
+    grid.appendChild(button);
+});
+
+            document.getElementById('slot-count').textContent =
+                `Total parking slots: ${slots.length}`;
+        }
+
+        loginForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            status.textContent = 'Signing in...';
+
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            const { data, error } = await supabase.auth.signInWithPassword({
+                email,
+                password
+            });
+
+            if (error) {
+                status.textContent = 'Login failed: ' + error.message;
+                return;
+            }
+
+            await showDashboard(data.user);
+        });
+
+        document.getElementById('logout-button')
+            .addEventListener('click', async () => {
+                await supabase.auth.signOut();
+                dashboard.hidden = true;
+                loginSection.hidden = false;
+                loginForm.reset();
+                status.textContent = 'You have signed out.';
+            });
+        
+const entryForm = document.getElementById('vehicle-entry-form');
+
+entryForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+
+    const status = document.getElementById('entry-status');
+    const submitButton = document.getElementById('register-vehicle-button');
+
+    const registrationNumber = document
+        .getElementById('registration-number')
+        .value.trim()
+        .toUpperCase();
+
+    const vehicleType = document.getElementById('vehicle-type').value;
+    const guestName = document.getElementById('guest-name').value.trim();
+    const guestContact = document.getElementById('guest-contact').value.trim();
+
+    submitButton.disabled = true;
+    status.textContent = 'Registering vehicle...';
+
+    try {
+        // 1. Register the vehicle
+    
+const { data: existingVehicle, error: searchError } = await supabase
+    .from('vehicles')
+    .select('vehicle_id')
+    .eq('registration_number', registrationNumber)
+    .maybeSingle();
+
+if (searchError) throw searchError;
+
+let vehicleId;
+
+if (existingVehicle) {
+    vehicleId = existingVehicle.vehicle_id;
+} else {
+    const { data: newVehicle, error: insertError } = await supabase
+        .from('vehicles')
+        .insert({
+            registration_number: registrationNumber,
+            vehicle_type: vehicleType,
+            guest_name: guestName || null,
+            guest_contact: guestContact || null
+        })
+        .select('vehicle_id')
+        .single();
+
+    if (insertError) throw insertError;
+
+    vehicleId = newVehicle.vehicle_id;
+}
+
+
+        // 2. Request a parking slot for the active test event (ID 1)
+      const { data: result, error: entryError } = await supabase.rpc(
+    'register_vehicle_entry',
+    { p_event_id: 1, p_vehicle_id: vehicleId }
+);
+
+if (entryError) throw entryError;
+
+        const assigned = result[0];
+
+        status.textContent =
+            `Success! Vehicle registered. Assigned slot: P${assigned.assigned_slot_number}`;
+
+        entryForm.reset();
+
+        // Refresh the parking grid
+        const { data: slots } = await supabase
+            .from('parking_slots')
+            .select('slot_id, slot_number, status')
+            .order('slot_number');
+
+        const { data: sessions } = await supabase
+            .from('parking_sessions')
+            .select('slot_id')
+            .is('exit_time', null);
+
+        if (slots && sessions) {
+            const occupiedSlots = new Set(sessions.map(s => s.slot_id));
+            const grid = document.getElementById('parking-grid');
+            grid.replaceChildren();
+
+            slots.forEach(slot => {
+                const tile = document.createElement('div');
+                const state = slot.status === 'unavailable'
+                    ? 'unavailable'
+                    : occupiedSlots.has(slot.slot_id)
+                        ? 'occupied'
+                        : 'available';
+
+                tile.className = `parking-slot ${state}`;
+                tile.textContent = `P${slot.slot_number}`;
+                tile.title = state;
+                grid.appendChild(tile);
+            });
+        }
+    } catch (error) {
+        status.textContent = 'Entry failed: ' + error.message;
+    } finally {
+        submitButton.disabled = false;
+    }
+});
+    
+const exitForm = document.getElementById('vehicle-exit-form');
+
+exitForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+
+    const exitStatus = document.getElementById('exit-status');
+    const exitButton = document.getElementById('register-exit-button');
+
+    const registrationNumber = document
+        .getElementById('exit-registration-number')
+        .value.trim().toUpperCase();
+
+    exitButton.disabled = true;
+    exitStatus.textContent = 'Recording vehicle exit...';
+
+    try {
+        const { data, error } = await supabase.rpc(
+            'register_vehicle_exit',
+            {
+                p_registration_number: registrationNumber
+            }
+        );
+
+        if (error) throw error;
+
+        const result = data[0];
+
+        exitStatus.textContent =
+            `Success! Vehicle exited. Slot P${result.freed_slot_number} is now free.`;
+
+        exitForm.reset();
+
+        // Refresh the dashboard to show the freed slot
+        const { data: slots, error: slotsError } = await supabase
+            .from('parking_slots')
+            .select('slot_id, slot_number, status')
+            .order('slot_number');
+
+        if (slotsError) throw slotsError;
+
+        const { data: sessions, error: sessionsError } = await supabase
+            .from('parking_sessions')
+            .select('slot_id')
+            .is('exit_time', null);
+
+        if (sessionsError) throw sessionsError;
+
+        const occupiedSlots = new Set(sessions.map(s => s.slot_id));
+        const grid = document.getElementById('parking-grid');
+
+        grid.replaceChildren();
+
+        slots.forEach(slot => {
+            const tile = document.createElement('div');
+
+            const state = slot.status === 'unavailable'
+                ? 'unavailable'
+                : occupiedSlots.has(slot.slot_id)
+                    ? 'occupied'
+                    : 'available';
+
+            tile.className = `parking-slot ${state}`;
+            tile.textContent = `P${slot.slot_number}`;
+            tile.title = state;
+
+            grid.appendChild(tile);
+        });
+
+    } catch (error) {
+        exitStatus.textContent = 'Exit failed: ' + error.message;
+    } finally {
+        exitButton.disabled = false;
+    }
+});
+
+    </script>
+</body>
+</html>

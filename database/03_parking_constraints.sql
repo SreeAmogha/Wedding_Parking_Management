@@ -87,3 +87,15 @@ USING (
         WHERE profiles.id = (SELECT auth.uid())
     )
 );
+
+CREATE POLICY "Staff can view parking audit log"
+ON public.parking_events
+FOR SELECT
+TO authenticated
+USING (
+    EXISTS (
+        SELECT 1
+        FROM public.profiles
+        WHERE profiles.id = (SELECT auth.uid())
+    )
+);
