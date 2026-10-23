@@ -71,3 +71,122 @@ button {
         gap: 8px;
     }
 }
+
+.parking-slot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 12px 8px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    text-align: center;
+}
+
+.slot-number {
+    font-size: 1.2rem;
+    font-weight: bold;
+}
+
+.slot-registration {
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.slot-status {
+    font-size: 0.8rem;
+    text-transform: capitalize;
+}
+
+/* Parking History Section */
+#parking-history {
+    margin-top: 30px;
+    padding: 24px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+#parking-history h2 {
+    margin-top: 0;
+    margin-bottom: 20px;
+    color: #1e293b;
+}
+
+/* History controls */
+#history-event-select {
+    padding: 10px 12px;
+    margin: 8px 10px 16px 0;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    min-width: 220px;
+    font-size: 14px;
+}
+
+#load-history-btn {
+    padding: 10px 18px;
+    background: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+#load-history-btn:hover {
+    background: #1d4ed8;
+}
+
+#history-status {
+    margin: 10px 0 16px;
+    color: #475569;
+    font-size: 14px;
+}
+
+/* Table container */
+.history-table-container {
+    width: 100%;
+    overflow-x: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+}
+
+#history-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 14px;
+    min-width: 700px;
+}
+
+#history-table thead {
+    background: #1e293b;
+    color: white;
+}
+
+#history-table th {
+    padding: 14px 16px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+#history-table td {
+    padding: 13px 16px;
+    border-bottom: 1px solid #e2e8f0;
+    color: #334155;
+    white-space: nowrap;
+}
+
+#history-table tbody tr:nth-child(even) {
+    background: #f8fafc;
+}
+
+#history-table tbody tr:hover {
+    background: #eff6ff;
+}
+
+#history-table tbody tr:last-child td {
+    border-bottom: none;
+}

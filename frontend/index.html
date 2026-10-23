@@ -52,18 +52,26 @@
 <hr>
 
 <h2>Register Vehicle Entry</h2>
+
+<label for="event-select">Select Wedding Event</label>
+<select id="event-select" required>
+    <option value="">Loading events...</option>
+</select>
+
 <p>Enter the guest's vehicle details to assign a parking slot.</p>
 
 <form id="vehicle-entry-form">
     <label for="registration-number">Vehicle Registration Number</label>
-    <input
-        type="text"
-        id="registration-number"
-        placeholder="e.g. KA01AB1234"
-        required
-        maxlength="20"
-    >
-
+  <input
+    type="text"
+    id="registration-number"
+    placeholder="e.g. KA01AB1234"
+    required
+    pattern="[A-Za-z0-9]{10}"
+    minlength="10"
+    maxlength="10"
+    title="Enter exactly 10 letters or digits"
+>
     <label for="vehicle-type">Vehicle Type</label>
     <select id="vehicle-type" required>
         <option value="">Select vehicle type</option>
@@ -83,10 +91,14 @@
 
     <label for="guest-contact">Guest Contact (optional)</label>
     <input
-        type="tel"
-        id="guest-contact"
-        placeholder="Enter contact number"
-    >
+    type="tel"
+    id="guest-contact"
+    placeholder="Enter 10-digit contact number"
+    required
+    pattern="[0-9]{10}"
+    minlength="10"
+    maxlength="10"
+>
 
     <button type="submit" id="register-vehicle-button">
         Register and Assign Slot
@@ -117,6 +129,49 @@
     <p id="exit-status" role="status"></p>
 </form>
 
+
+<hr>
+
+<section id="parking-history">
+    <h2>Parking History</h2>
+
+    <label for="history-event-select">
+        Select Wedding Event
+    </label>
+
+    <select id="history-event-select">
+        <option value="">Select a wedding event</option>
+    </select>
+
+    <button type="button" id="load-history-btn">
+        Load History
+    </button>
+
+    <p id="history-status"></p>
+
+    <div class="history-table-container">
+        <table id="history-table">
+            <thead>
+                <tr>
+                    <th>Vehicle Number</th>
+                    <th>Slot</th>
+                    <th>Entry Time</th>
+                    <th>Exit Time</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+
+            <tbody id="history-body">
+                <tr>
+                    <td colspan="5">
+                        Select an event and click Load History.
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
     <button id="logout-button">Sign Out</button>
 </section>
 
@@ -127,6 +182,94 @@
         const loginSection = document.getElementById('login-section');
         const dashboard = document.getElementById('dashboard');
         const loginForm = document.getElementById('login-form');
+        
+async function refreshParkingGrid() {
+    const slotCount = document.getElementById('slot-count');
+    const grid = document.getElementById('parking-grid');
+
+    // 1. Fetch all parking slots
+    const { data: slots, error: slotsError } = await supabase
+        .from('parking_slots')
+        .select('slot_id, slot_number, status')
+        .order('slot_number');
+
+    if (slotsError) throw slotsError;
+
+    // 2. Fetch active parking sessions and their vehicle registrations
+    const { data: sessions, error: sessionsError } = await supabase
+        .from('parking_sessions')
+        .select('slot_id, vehicles(registration_number)')
+        .is('exit_time', null);
+
+    if (sessionsError) throw sessionsError;
+
+    // 3. Match each occupied slot with its vehicle registration
+    const vehicleBySlot = new Map();
+
+    sessions.forEach(session => {
+        const vehicle = session.vehicles;
+
+        vehicleBySlot.set(
+            session.slot_id,
+            vehicle?.registration_number || 'Registration unavailable'
+        );
+    });
+
+    // 4. Update the dashboard counts
+    const occupiedSlots = new Set(
+        sessions.map(session => session.slot_id)
+    );
+
+    const availableCount = slots.filter(
+        slot =>
+            slot.status !== 'unavailable' &&
+            !occupiedSlots.has(slot.slot_id)
+    ).length;
+
+    slotCount.textContent =
+        `Total parking slots: ${slots.length} | ` +
+        `Occupied: ${slots.filter(slot => occupiedSlots.has(slot.slot_id)).length} | ` +
+        `Available: ${availableCount}`;
+
+    // 5. Render the parking grid
+    grid.replaceChildren();
+
+    slots.forEach(slot => {
+        const tile = document.createElement('div');
+
+        const occupied = occupiedSlots.has(slot.slot_id);
+
+        const state = slot.status === 'unavailable'
+            ? 'unavailable'
+            : occupied
+                ? 'occupied'
+                : 'available';
+
+        tile.className = `parking-slot ${state}`;
+
+        const number = document.createElement('div');
+        number.className = 'slot-number';
+        number.textContent = `P${slot.slot_number}`;
+
+        const registration = document.createElement('div');
+        registration.className = 'slot-registration';
+        registration.textContent = occupied
+            ? vehicleBySlot.get(slot.slot_id) || 'Registration unavailable'
+            : 'No vehicle';
+
+        const statusLabel = document.createElement('div');
+        statusLabel.className = 'slot-status';
+        statusLabel.textContent =
+            state.charAt(0).toUpperCase() + state.slice(1);
+
+        tile.append(number, registration, statusLabel);
+        tile.title = occupied
+            ? `P${slot.slot_number} - ${vehicleBySlot.get(slot.slot_id) || 'Registration unavailable'}`
+            : `P${slot.slot_number} - ${state}`;
+
+        grid.appendChild(tile);
+    });
+}
 
         async function showDashboard(user) {
             status.textContent = 'Checking staff profile...';
@@ -149,6 +292,49 @@
 
             status.textContent =
                 `Welcome, ${profile.full_name} (${profile.role})!`;
+                loadHistoryEvents();
+                
+const eventSelect = document.getElementById('event-select');
+
+eventSelect.replaceChildren();
+
+const loadingOption = document.createElement('option');
+loadingOption.value = '';
+loadingOption.textContent = 'Loading events...';
+eventSelect.appendChild(loadingOption);
+
+const { data: events, error: eventsError } = await supabase
+    .from('wedding_events')
+    .select('event_id, event_name, event_date, status')
+    .order('event_date');
+
+eventSelect.replaceChildren();
+
+if (eventsError) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'Could not load events';
+    eventSelect.appendChild(option);
+
+    document.getElementById('entry-status').textContent =
+        'Could not load wedding events: ' + eventsError.message;
+} else {
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'Select a wedding event';
+    eventSelect.appendChild(defaultOption);
+
+    events
+        .filter(event => event.status === 'active' || event.status === 'planned')        .forEach(event => {
+            const option = document.createElement('option');
+            option.value = event.event_id;
+            option.textContent =
+                `${event.event_name} (${event.event_date})`;
+
+            eventSelect.appendChild(option);
+        });
+}
+
 
             
 const { data: slots, error: slotsError } = await supabase
@@ -162,17 +348,12 @@ if (slotsError) {
     return;
 }
 
-const { data: sessions, error: sessionsError } = await supabase
-    .from('parking_sessions')
-    .select('slot_id')
-    .is('exit_time', null);
-
-if (sessionsError) {
+try {
+    await refreshParkingGrid();
+} catch (error) {
     document.getElementById('slot-count').textContent =
-        'Could not load parking occupancy: ' + sessionsError.message;
-    return;
+        'Could not load parking grid: ' + error.message;
 }
-
 const occupiedSlots = new Set(sessions.map(s => s.slot_id));
 
 document.getElementById('slot-count').textContent =
@@ -199,6 +380,103 @@ slots.forEach(slot => {
             document.getElementById('slot-count').textContent =
                 `Total parking slots: ${slots.length}`;
         }
+        
+async function loadHistoryEvents() {
+    const select = document.getElementById('history-event-select');
+
+    const { data: events, error } = await supabase
+        .from('wedding_events')
+        .select('event_id, event_name, event_date')
+        .order('event_date');
+
+    if (error) {
+        document.getElementById('history-status').textContent =
+            'Could not load events: ' + error.message;
+        return;
+    }
+
+    select.replaceChildren();
+
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'Select a wedding event';
+    select.appendChild(defaultOption);
+
+    events.forEach(event => {
+        const option = document.createElement('option');
+        option.value = event.event_id;
+        option.textContent =
+            `${event.event_name} (${event.event_date})`;
+        select.appendChild(option);
+    });
+}
+
+async function loadParkingHistory() {
+    const eventId =
+        document.getElementById('history-event-select').value;
+
+    const status = document.getElementById('history-status');
+    const tbody = document.getElementById('history-body');
+
+    if (!eventId) {
+        status.textContent = 'Please select a wedding event.';
+        return;
+    }
+
+    status.textContent = 'Loading parking history...';
+    tbody.replaceChildren();
+
+    const { data: sessions, error } = await supabase
+        .from('parking_sessions')
+        .select(`
+            entry_time,
+            exit_time,
+            vehicles(registration_number),
+            parking_slots(slot_number)
+        `)
+        .eq('event_id', Number(eventId))
+        .order('entry_time', { ascending: false });
+
+    if (error) {
+        status.textContent =
+            'Could not load history: ' + error.message;
+        return;
+    }
+
+    if (!sessions || sessions.length === 0) {
+        status.textContent = 'No parking records for this event yet.';
+        return;
+    }
+
+    sessions.forEach(session => {
+        const row = document.createElement('tr');
+
+        const values = [
+            session.vehicles?.registration_number ?? 'Unknown',
+            session.parking_slots?.slot_number ?? 'Unknown',
+            session.entry_time
+                ? new Date(session.entry_time).toLocaleString()
+                : '-',
+            session.exit_time
+                ? new Date(session.exit_time).toLocaleString()
+                : 'Not exited',
+            session.exit_time ? 'Exited' : 'Currently Parked'
+        ];
+
+        values.forEach(value => {
+            const cell = document.createElement('td');
+            cell.textContent = value;
+            row.appendChild(cell);
+        });
+
+        tbody.appendChild(row);
+    });
+
+    status.textContent = `Found ${sessions.length} parking record(s).`;
+}
+
+document.getElementById('load-history-btn')
+    .addEventListener('click', loadParkingHistory);
 
         loginForm.addEventListener('submit', async (event) => {
             event.preventDefault();
@@ -243,6 +521,12 @@ entryForm.addEventListener('submit', async (event) => {
         .toUpperCase();
 
     const vehicleType = document.getElementById('vehicle-type').value;
+    const eventId = document.getElementById('event-select').value;
+
+if (!eventId) {
+    status.textContent = 'Please select a wedding event.';
+    return;
+}
     const guestName = document.getElementById('guest-name').value.trim();
     const guestContact = document.getElementById('guest-contact').value.trim();
 
@@ -285,7 +569,10 @@ if (existingVehicle) {
         // 2. Request a parking slot for the active test event (ID 1)
       const { data: result, error: entryError } = await supabase.rpc(
     'register_vehicle_entry',
-    { p_event_id: 1, p_vehicle_id: vehicleId }
+    {
+        p_event_id: Number(eventId),
+        p_vehicle_id: vehicleId
+    }
 );
 
 if (entryError) throw entryError;
@@ -298,35 +585,7 @@ if (entryError) throw entryError;
         entryForm.reset();
 
         // Refresh the parking grid
-        const { data: slots } = await supabase
-            .from('parking_slots')
-            .select('slot_id, slot_number, status')
-            .order('slot_number');
-
-        const { data: sessions } = await supabase
-            .from('parking_sessions')
-            .select('slot_id')
-            .is('exit_time', null);
-
-        if (slots && sessions) {
-            const occupiedSlots = new Set(sessions.map(s => s.slot_id));
-            const grid = document.getElementById('parking-grid');
-            grid.replaceChildren();
-
-            slots.forEach(slot => {
-                const tile = document.createElement('div');
-                const state = slot.status === 'unavailable'
-                    ? 'unavailable'
-                    : occupiedSlots.has(slot.slot_id)
-                        ? 'occupied'
-                        : 'available';
-
-                tile.className = `parking-slot ${state}`;
-                tile.textContent = `P${slot.slot_number}`;
-                tile.title = state;
-                grid.appendChild(tile);
-            });
-        }
+        await refreshParkingGrid();
     } catch (error) {
         status.textContent = 'Entry failed: ' + error.message;
     } finally {
@@ -366,41 +625,7 @@ exitForm.addEventListener('submit', async (event) => {
 
         exitForm.reset();
 
-        // Refresh the dashboard to show the freed slot
-        const { data: slots, error: slotsError } = await supabase
-            .from('parking_slots')
-            .select('slot_id, slot_number, status')
-            .order('slot_number');
-
-        if (slotsError) throw slotsError;
-
-        const { data: sessions, error: sessionsError } = await supabase
-            .from('parking_sessions')
-            .select('slot_id')
-            .is('exit_time', null);
-
-        if (sessionsError) throw sessionsError;
-
-        const occupiedSlots = new Set(sessions.map(s => s.slot_id));
-        const grid = document.getElementById('parking-grid');
-
-        grid.replaceChildren();
-
-        slots.forEach(slot => {
-            const tile = document.createElement('div');
-
-            const state = slot.status === 'unavailable'
-                ? 'unavailable'
-                : occupiedSlots.has(slot.slot_id)
-                    ? 'occupied'
-                    : 'available';
-
-            tile.className = `parking-slot ${state}`;
-            tile.textContent = `P${slot.slot_number}`;
-            tile.title = state;
-
-            grid.appendChild(tile);
-        });
+       await refreshParkingGrid();
 
     } catch (error) {
         exitStatus.textContent = 'Exit failed: ' + error.message;
