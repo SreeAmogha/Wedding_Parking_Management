@@ -1,51 +1,140 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Manage Events | Smart Wedding Parking</title>
-    <link rel="stylesheet" href="/style.css">
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <title>Manage Events | Smart Wedding Parking</title>
+   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
-    <div id="sidebar-container"></div>
-
-    <main class="dashboard-content">
-        <h1>Manage Events</h1>
-        <p>Create and manage wedding parking events.</p>
-
-        <section class="events-section">
-            <h2>Add New Event</h2>
-
-            <form id="add-event-form">
-                <label for="event-name">Event Name</label>
-                <input
-                    type="text"
-                    id="event-name"
-                    name="event_name"
-                    placeholder="e.g. Wedding Reception"
-                    required
-                >
-
-                <label for="event-date">Event Date</label>
-                <input
-                    type="date"
-                    id="event-date"
-                    name="event_date"
-                    required
-                >
-
-                <button type="submit">Add Event</button>
-            </form>
-        </section>
-
-        <section class="events-list-section">
-            <h2>Existing Events</h2>
-            <p>Your events will appear here.</p>
-        </section>
-    </main>
-
-    <script src="/sidebar.js"></script>
+   <div id="sidebar-container"></div>
+   <main class="dashboard-content">
+       <div class="page-header">
+           <div>
+               <h1>Manage Events</h1>
+               <p class="welcome-msg">Create and manage wedding parking events</p>
+           </div>
+           <button id="logout-button" class="logout-btn">Sign Out</button>
+       </div>
+       <div class="two-col-grid">
+           <!-- Add Event Form -->
+           <section class="section-card">
+               <div class="section-card-header">
+                   <h2>📅 Add New Event</h2>
+               </div>
+               <p class="section-desc">Create a new wedding event to track parking sessions.</p>
+               <form id="add-event-form">
+                   <label for="event-name">Event Name</label>
+                   <input
+                       type="text"
+                       id="event-name"
+                       name="event_name"
+                       placeholder="e.g. Sharma Wedding Reception"
+                       required
+                   >
+                   <label for="event-date">Event Date</label>
+                   <input
+                       type="date"
+                       id="event-date"
+                       name="event_date"
+                       required
+                   >
+                   <label for="event-status">Status</label>
+                   <select id="event-status" name="status" required>
+                       <option value="planned">Planned</option>
+                       <option value="active">Active</option>
+                       <option value="completed">Completed</option>
+                   </select>
+                   <button type="submit" id="add-event-btn" class="btn-primary">Add Event</button>
+                   <p id="event-add-status" class="form-status" role="status"></p>
+               </form>
+           </section>
+           <!-- Events List -->
+           <section class="section-card">
+               <div class="section-card-header">
+                   <h2>📋 Existing Events</h2>
+               </div>
+               <p id="events-list-status" class="form-status">Loading events…</p>
+               <div id="events-list" class="events-list"></div>
+           </section>
+       </div>
+   </main>
+   <script type="module">
+       import { supabase } from './app.js';
+       // Auth guard
+       const { data: { session } } = await supabase.auth.getSession();
+       if (!session) { window.location.href = 'index.html'; }
+       // Logout
+       document.getElementById('logout-button').addEventListener('click', async () => {
+           await supabase.auth.signOut();
+           window.location.href = 'index.html';
+       });
+       const statusBadgeClass = {
+           active: 'badge-parked',
+           planned: 'badge-planned',
+           completed: 'badge-exited'
+       };
+       // Load existing events
+       async function loadEvents() {
+           const container = document.getElementById('events-list');
+           const statusEl = document.getElementById('events-list-status');
+           const { data: events, error } = await supabase
+               .from('wedding_events')
+               .select('event_id, event_name, event_date, status')
+               .order('event_date', { ascending: false });
+           if (error) {
+               statusEl.textContent = '❌ Could not load events: ' + error.message;
+               statusEl.style.color = '#dc2626';
+               return;
+           }
+           statusEl.textContent = '';
+           container.replaceChildren();
+           if (!events || events.length === 0) {
+               statusEl.textContent = 'No events yet. Add your first event.';
+               return;
+           }
+           events.forEach(event => {
+               const card = document.createElement('div');
+               card.className = 'event-item';
+               card.innerHTML = `
+                   <div class="event-item-info">
+                       <strong>${event.event_name}</strong>
+                       <small>📅 ${new Date(event.event_date).toLocaleDateString('en-IN', { dateStyle: 'long' })}</small>
+                   </div>
+                   <span class="badge ${statusBadgeClass[event.status] || 'badge-exited'}">
+                       ${event.status.charAt(0).toUpperCase() + event.status.slice(1)}
+                   </span>
+               `;
+               container.appendChild(card);
+           });
+       }
+       await loadEvents();
+       // Add event form
+       document.getElementById('add-event-form').addEventListener('submit', async (e) => {
+           e.preventDefault();
+           const addStatus = document.getElementById('event-add-status');
+           const btn = document.getElementById('add-event-btn');
+           const eventName = document.getElementById('event-name').value.trim();
+           const eventDate = document.getElementById('event-date').value;
+           const eventStatus = document.getElementById('event-status').value;
+           btn.disabled = true;
+           addStatus.textContent = 'Adding event…';
+           addStatus.style.color = '#64748b';
+           const { error } = await supabase
+               .from('wedding_events')
+               .insert({ event_name: eventName, event_date: eventDate, status: eventStatus });
+           if (error) {
+               addStatus.textContent = '❌ Could not add event: ' + error.message;
+               addStatus.style.color = '#dc2626';
+           } else {
+               addStatus.textContent = '✅ Event added successfully!';
+               addStatus.style.color = '#16a34a';
+               e.target.reset();
+               await loadEvents();
+           }
+           btn.disabled = false;
+       });
+   </script>
+   <script src="sidebar.js"></script>
 </body>
 </html>

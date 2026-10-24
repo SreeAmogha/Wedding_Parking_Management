@@ -1,63 +1,43 @@
-
 const sidebarHTML = `
-    <aside class="sidebar">
-        <div class="sidebar-brand">
-            <span class="brand-icon">🚗</span>
-            <div>
-                <h2>Smart Parking</h2>
-                <p>WEDDING MANAGEMENT</p>
-            </div>
-        </div>
-
-        <nav class="sidebar-nav">
-            <a href="/" data-page="dashboard">
-                <span>▦</span> Dashboard
-            </a>
-
-            <a href="/history" data-page="history">
-                <span>◷</span> Parking History
-            </a>
-
-            <a href="/events" data-page="events">
-                <span>▣</span> Manage Events
-            </a>
-
-            <a href="/parking-slots" data-page="parking-slots">
-                <span>🅿</span> Assign Parking Spots
-            </a>
-        </nav>
-
-        <div class="sidebar-footer">
-            <p>Smart Wedding Parking</p>
-            <small>Attendant Panel</small>
-        </div>
-    </aside>
+   <aside class="sidebar">
+       <div class="sidebar-brand">
+           <span class="brand-icon">🚗</span>
+           <div>
+               <h2>Smart Parking</h2>
+               <p>WEDDING MANAGEMENT</p>
+           </div>
+       </div>
+       <nav class="sidebar-nav">
+           <a href="dashboard.html" data-page="dashboard">
+               <span>▦</span> Dashboard
+           </a>
+           <a href="entry-exit.html" data-page="entry-exit">
+               <span>🚘</span> Entry / Exit
+           </a>
+           <a href="history.html" data-page="history">
+               <span>◷</span> Parking History
+           </a>
+           <a href="events.html" data-page="events">
+               <span>📅</span> Manage Events
+           </a>
+       </nav>
+       <div class="sidebar-footer">
+           <p>Smart Wedding Parking</p>
+           <small>Attendant Panel</small>
+       </div>
+   </aside>
 `;
-
 document.addEventListener("DOMContentLoaded", () => {
-    const container = document.getElementById("sidebar-container");
-
-    if (!container) return;
-
-    container.innerHTML = sidebarHTML;
-
-    const currentPath = window.location.pathname;
-
-    let currentPage = "dashboard";
-
-    if (currentPath === "/history") {
-        currentPage = "history";
-    } else if (currentPath === "/events") {
-        currentPage = "events";
-    } else if (currentPath === "/parking-slots") {
-        currentPage = "parking-slots";
-    }
-
-    const activeLink = container.querySelector(
-        `[data-page="${currentPage}"]`
-    );
-
-    if (activeLink) {
-        activeLink.classList.add("active");
-    }
+   const container = document.getElementById("sidebar-container");
+   if (!container) return;
+   container.innerHTML = sidebarHTML;
+   // Determine current page from filename
+   const path = window.location.pathname;
+   const filename = path.split('/').pop() || 'dashboard.html';
+   let currentPage = 'dashboard';
+   if (filename.includes('entry-exit'))    currentPage = 'entry-exit';
+   else if (filename.includes('history'))  currentPage = 'history';
+   else if (filename.includes('events'))   currentPage = 'events';
+   const activeLink = container.querySelector(`[data-page="${currentPage}"]`);
+   if (activeLink) activeLink.classList.add('active');
 });

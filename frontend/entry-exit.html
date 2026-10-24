@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <title>Entry / Exit | Smart Wedding Parking</title>
+   <link rel="stylesheet" href="style.css">
+</head>
+<body>
+   <div id="sidebar-container"></div>
+   <main class="dashboard-content">
+       <div class="page-header">
+           <div>
+               <h1>Vehicle Entry &amp; Exit</h1>
+               <p class="welcome-msg">Register vehicle arrivals and departures</p>
+           </div>
+           <button id="logout-button" class="logout-btn">Sign Out</button>
+       </div>
+       <div class="two-col-grid">
+           <!-- ── VEHICLE ENTRY ── -->
+           <section class="section-card">
+               <div class="section-card-header">
+                   <h2>🚘 Register Vehicle Entry</h2>
+               </div>
+               <p class="section-desc">Assign a parking slot to an arriving guest vehicle.</p>
+               <label for="event-select">Wedding Event</label>
+               <select id="event-select" required>
+                   <option value="">Loading events…</option>
+               </select>
+               <form id="vehicle-entry-form">
+                   <label for="registration-number">Vehicle Registration Number</label>
+                   <input
+                       type="text"
+                       id="registration-number"
+                       placeholder="e.g. KA01AB1234"
+                       required
+                       pattern="[A-Za-z0-9]{10}"
+                       minlength="10"
+                       maxlength="10"
+                       title="Enter exactly 10 letters or digits"
+                   >
+                   <label for="vehicle-type">Vehicle Type</label>
+                   <select id="vehicle-type" required>
+                       <option value="">Select vehicle type</option>
+                       <option value="car">Car</option>
+                       <option value="suv">SUV</option>
+                       <option value="bike">Bike</option>
+                       <option value="van">Van</option>
+                       <option value="other">Other</option>
+                   </select>
+                   <label for="guest-name">Guest Name</label>
+                   <input
+                       type="text"
+                       id="guest-name"
+                       placeholder="Enter guest name"
+                   >
+                   <label for="guest-contact">Guest Contact</label>
+                   <input
+                       type="tel"
+                       id="guest-contact"
+                       placeholder="10-digit contact number"
+                       required
+                       pattern="[0-9]{10}"
+                       minlength="10"
+                       maxlength="10"
+                   >
+                   <button type="submit" id="register-vehicle-button" class="btn-primary">
+                       Register &amp; Assign Slot
+                   </button>
+                   <p id="entry-status" class="form-status" role="status"></p>
+               </form>
+           </section>
+           <!-- ── VEHICLE EXIT ── -->
+           <section class="section-card">
+               <div class="section-card-header">
+                   <h2>🚪 Register Vehicle Exit</h2>
+               </div>
+               <p class="section-desc">Free up a parking slot when a guest vehicle leaves.</p>
+               <form id="vehicle-exit-form">
+                   <label for="exit-registration-number">Vehicle Registration Number</label>
+                   <input
+                       type="text"
+                       id="exit-registration-number"
+                       placeholder="e.g. KA03MN5678"
+                       required
+                       maxlength="20"
+                   >
+                   <button type="submit" id="register-exit-button" class="btn-danger">
+                       Record Vehicle Exit
+                   </button>
+                   <p id="exit-status" class="form-status" role="status"></p>
+               </form>
+           </section>
+       </div>
+   </main>
+   <script type="module">
+       import { supabase } from './app.js';
+       // Auth guard
+       const { data: { session } } = await supabase.auth.getSession();
+       if (!session) { window.location.href = 'index.html'; }
+       // Logout
+       document.getElementById('logout-button').addEventListener('click', async () => {
+           await supabase.auth.signOut();
+           window.location.href = 'index.html';
+       });
+       // Load events into the entry select
+       async function loadEvents() {
+           const eventSelect = document.getElementById('event-select');
+           const { data: events, error } = await supabase
+               .from('wedding_events')
+               .select('event_id, event_name, event_date, status')
+               .order('event_date');
+           eventSelect.replaceChildren();
+           if (error) {
+               const opt = document.createElement('option');
+               opt.textContent = 'Could not load events';
+               eventSelect.appendChild(opt);
+               return;
+           }
+           const defaultOpt = document.createElement('option');
+           defaultOpt.value = '';
+           defaultOpt.textContent = 'Select a wedding event';
+           eventSelect.appendChild(defaultOpt);
+           events
+               .filter(e => e.status === 'active' || e.status === 'planned')
+               .forEach(e => {
+                   const opt = document.createElement('option');
+                   opt.value = e.event_id;
+                   opt.textContent = `${e.event_name} (${e.event_date})`;
+                   eventSelect.appendChild(opt);
+               });
+       }
+       await loadEvents();
+       // ── ENTRY FORM ──
+       document.getElementById('vehicle-entry-form').addEventListener('submit', async (e) => {
+           e.preventDefault();
+           const statusEl = document.getElementById('entry-status');
+           const submitBtn = document.getElementById('register-vehicle-button');
+           const registrationNumber = document.getElementById('registration-number').value.trim().toUpperCase();
+           const vehicleType = document.getElementById('vehicle-type').value;
+           const eventId = document.getElementById('event-select').value;
+           const guestName = document.getElementById('guest-name').value.trim();
+           const guestContact = document.getElementById('guest-contact').value.trim();
+           if (!eventId) {
+               statusEl.textContent = '⚠️ Please select a wedding event.';
+               statusEl.style.color = '#dc2626';
+               return;
+           }
+           submitBtn.disabled = true;
+           statusEl.textContent = 'Registering vehicle…';
+           statusEl.style.color = '#64748b';
+           try {
+               // Upsert vehicle
+               const { data: existingVehicle } = await supabase
+                   .from('vehicles')
+                   .select('vehicle_id')
+                   .eq('registration_number', registrationNumber)
+                   .maybeSingle();
+               let vehicleId;
+               if (existingVehicle) {
+                   vehicleId = existingVehicle.vehicle_id;
+               } else {
+                   const { data: newVehicle, error: insertError } = await supabase
+                       .from('vehicles')
+                       .insert({
+                           registration_number: registrationNumber,
+                           vehicle_type: vehicleType,
+                           guest_name: guestName || null,
+                           guest_contact: guestContact || null
+                       })
+                       .select('vehicle_id')
+                       .single();
+                   if (insertError) throw insertError;
+                   vehicleId = newVehicle.vehicle_id;
+               }
+               const { data: result, error: entryError } = await supabase.rpc(
+                   'register_vehicle_entry',
+                   { p_event_id: Number(eventId), p_vehicle_id: vehicleId }
+               );
+               if (entryError) throw entryError;
+               const assigned = result[0];
+               statusEl.textContent = `✅ Success! Assigned to slot P${assigned.assigned_slot_number}`;
+               statusEl.style.color = '#16a34a';
+               e.target.reset();
+           } catch (err) {
+               statusEl.textContent = '❌ Entry failed: ' + err.message;
+               statusEl.style.color = '#dc2626';
+           } finally {
+               submitBtn.disabled = false;
+           }
+       });
+       // ── EXIT FORM ──
+       document.getElementById('vehicle-exit-form').addEventListener('submit', async (e) => {
+           e.preventDefault();
+           const exitStatus = document.getElementById('exit-status');
+           const exitBtn = document.getElementById('register-exit-button');
+           const registrationNumber = document.getElementById('exit-registration-number').value.trim().toUpperCase();
+           exitBtn.disabled = true;
+           exitStatus.textContent = 'Recording exit…';
+           exitStatus.style.color = '#64748b';
+           try {
+               const { data, error } = await supabase.rpc(
+                   'register_vehicle_exit',
+                   { p_registration_number: registrationNumber }
+               );
+               if (error) throw error;
+               const result = data[0];
+               exitStatus.textContent = `✅ Vehicle exited. Slot P${result.freed_slot_number} is now free.`;
+               exitStatus.style.color = '#16a34a';
+               e.target.reset();
+           } catch (err) {
+               exitStatus.textContent = '❌ Exit failed: ' + err.message;
+               exitStatus.style.color = '#dc2626';
+           } finally {
+               exitBtn.disabled = false;
+           }
+       });
+   </script>
+   <script src="sidebar.js"></script>
+</body>
+</html>
