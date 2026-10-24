@@ -1,0 +1,51 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Events | Smart Wedding Parking</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+    <div id="sidebar-container"></div>
+
+    <main class="dashboard-content">
+        <h1>Manage Events</h1>
+        <p>Create and manage wedding parking events.</p>
+
+        <section class="events-section">
+            <h2>Add New Event</h2>
+
+            <form id="add-event-form">
+                <label for="event-name">Event Name</label>
+                <input
+                    type="text"
+                    id="event-name"
+                    name="event_name"
+                    placeholder="e.g. Wedding Reception"
+                    required
+                >
+
+                <label for="event-date">Event Date</label>
+                <input
+                    type="date"
+                    id="event-date"
+                    name="event_date"
+                    required
+                >
+
+                <button type="submit">Add Event</button>
+            </form>
+        </section>
+
+        <section class="events-list-section">
+            <h2>Existing Events</h2>
+            <p>Your events will appear here.</p>
+        </section>
+    </main>
+
+    <script src="/sidebar.js"></script>
+</body>
+</html>
