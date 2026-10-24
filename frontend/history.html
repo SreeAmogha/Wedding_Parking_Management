@@ -1,26 +1,177 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Parking History | Smart Wedding Parking</title>
-    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
     <div id="sidebar-container"></div>
 
     <main class="dashboard-content">
-        <h1>Parking History</h1>
-        <p>View and track vehicle parking entries and exits.</p>
 
-        <section class="history-section">
-            <h2>Parking Records</h2>
-            <p>Parking history will appear here.</p>
+        <div class="page-header">
+            <div>
+                <h1>Parking History</h1>
+                <p class="welcome-msg">View all parking sessions by wedding event</p>
+            </div>
+            <button id="logout-button" class="logout-btn">Sign Out</button>
+        </div>
+
+        <section class="section-card">
+            <div class="section-card-header">
+                <h2>Session Records</h2>
+            </div>
+
+            <div class="history-controls">
+                <div class="history-filter">
+                    <label for="history-event-select">Select Wedding Event</label>
+                    <select id="history-event-select">
+                        <option value="">Loading events…</option>
+                    </select>
+                </div>
+                <button type="button" id="load-history-btn" class="btn-primary">
+                    Load History
+                </button>
+            </div>
+
+            <p id="history-status" class="form-status"></p>
+
+            <div class="history-table-container">
+                <table id="history-table">
+                    <thead>
+                        <tr>
+                            <th>Vehicle Number</th>
+                            <th>Guest Name</th>
+                            <th>Slot</th>
+                            <th>Entry Time</th>
+                            <th>Exit Time</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-body">
+                        <tr>
+                            <td colspan="6" class="empty-state">Select an event and click Load History.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
         </section>
+
     </main>
 
-    <script src="/sidebar.js"></script>
+    <script type="module">
+        import { supabase } from './app.js';
+
+        // Auth guard
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) { window.location.href = 'index.html'; }
+
+        // Logout
+        document.getElementById('logout-button').addEventListener('click', async () => {
+            await supabase.auth.signOut();
+            window.location.href = 'index.html';
+        });
+
+        // Load events into dropdown
+        async function loadHistoryEvents() {
+            const select = document.getElementById('history-event-select');
+            const { data: events, error } = await supabase
+                .from('wedding_events')
+                .select('event_id, event_name, event_date')
+                .order('event_date');
+
+            select.replaceChildren();
+
+            if (error) {
+                const opt = document.createElement('option');
+                opt.textContent = 'Could not load events';
+                select.appendChild(opt);
+                return;
+            }
+
+            const defaultOpt = document.createElement('option');
+            defaultOpt.value = '';
+            defaultOpt.textContent = 'Select a wedding event';
+            select.appendChild(defaultOpt);
+
+            events.forEach(e => {
+                const opt = document.createElement('option');
+                opt.value = e.event_id;
+                opt.textContent = `${e.event_name} (${e.event_date})`;
+                select.appendChild(opt);
+            });
+        }
+
+        await loadHistoryEvents();
+
+        // Load parking history for selected event
+        async function loadParkingHistory() {
+            const eventId = document.getElementById('history-event-select').value;
+            const statusEl = document.getElementById('history-status');
+            const tbody = document.getElementById('history-body');
+
+            if (!eventId) {
+                statusEl.textContent = '⚠️ Please select a wedding event.';
+                statusEl.style.color = '#dc2626';
+                return;
+            }
+
+            statusEl.textContent = 'Loading parking history…';
+            statusEl.style.color = '#64748b';
+            tbody.replaceChildren();
+
+            const { data: sessions, error } = await supabase
+                .from('parking_sessions')
+                .select(`
+                    entry_time,
+                    exit_time,
+                    vehicles(registration_number, guest_name),
+                    parking_slots(slot_number)
+                `)
+                .eq('event_id', Number(eventId))
+                .order('entry_time', { ascending: false });
+
+            if (error) {
+                statusEl.textContent = '❌ Could not load history: ' + error.message;
+                statusEl.style.color = '#dc2626';
+                return;
+            }
+
+            if (!sessions || sessions.length === 0) {
+                statusEl.textContent = 'No parking records for this event yet.';
+                tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No records found.</td></tr>';
+                return;
+            }
+
+            sessions.forEach(session => {
+                const row = document.createElement('tr');
+                const isParked = !session.exit_time;
+
+                row.innerHTML = `
+                    <td>${session.vehicles?.registration_number ?? 'Unknown'}</td>
+                    <td>${session.vehicles?.guest_name ?? '—'}</td>
+                    <td>P${session.parking_slots?.slot_number ?? '?'}</td>
+                    <td>${session.entry_time ? new Date(session.entry_time).toLocaleString() : '—'}</td>
+                    <td>${session.exit_time ? new Date(session.exit_time).toLocaleString() : 'Not exited'}</td>
+                    <td>
+                        <span class="badge ${isParked ? 'badge-parked' : 'badge-exited'}">
+                            ${isParked ? 'Currently Parked' : 'Exited'}
+                        </span>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            statusEl.textContent = `Found ${sessions.length} parking record(s).`;
+            statusEl.style.color = '#16a34a';
+        }
+
+        document.getElementById('load-history-btn').addEventListener('click', loadParkingHistory);
+    </script>
+
+    <script src="sidebar.js"></script>
 </body>
 </html>

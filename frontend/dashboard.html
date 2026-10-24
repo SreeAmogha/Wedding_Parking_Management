@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard | Smart Wedding Parking</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="sidebar-container"></div>
+
+    <main class="dashboard-content">
+
+        <div class="page-header">
+            <div>
+                <h1>Parking Dashboard</h1>
+                <p id="welcome-msg" class="welcome-msg">Welcome back!</p>
+            </div>
+            <button id="logout-button" class="logout-btn">Sign Out</button>
+        </div>
+
+        <!-- Stats cards -->
+        <div class="stats-row">
+            <div class="stat-card stat-total">
+                <span class="stat-icon">🅿</span>
+                <div>
+                    <p class="stat-label">Total Slots</p>
+                    <p class="stat-value" id="total-count">—</p>
+                </div>
+            </div>
+            <div class="stat-card stat-available">
+                <span class="stat-icon">✅</span>
+                <div>
+                    <p class="stat-label">Available</p>
+                    <p class="stat-value" id="available-count">—</p>
+                </div>
+            </div>
+            <div class="stat-card stat-occupied">
+                <span class="stat-icon">🚗</span>
+                <div>
+                    <p class="stat-label">Occupied</p>
+                    <p class="stat-value" id="occupied-count">—</p>
+                </div>
+            </div>
+            <div class="stat-card stat-unavailable">
+                <span class="stat-icon">🚫</span>
+                <div>
+                    <p class="stat-label">Unusable</p>
+                    <p class="stat-value" id="unavailable-count">—</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Parking Grid -->
+        <section class="section-card">
+            <div class="section-card-header">
+                <h2>Live Parking Map</h2>
+                <div class="legend">
+                    <span><i class="dot available"></i> Available</span>
+                    <span><i class="dot occupied"></i> Occupied</span>
+                    <span><i class="dot unavailable"></i> Unusable</span>
+                </div>
+            </div>
+            <div id="parking-grid" class="parking-grid"></div>
+            <p id="grid-status" class="loading-msg">Loading parking slots...</p>
+        </section>
+
+        <!-- Quick links -->
+        <div class="quick-links">
+            <a href="entry-exit.html" class="quick-card">
+                <span>🚘</span>
+                <strong>Register Entry / Exit</strong>
+                <p>Log vehicle arrivals and departures</p>
+            </a>
+            <a href="history.html" class="quick-card">
+                <span>📋</span>
+                <strong>Parking History</strong>
+                <p>View past parking sessions by event</p>
+            </a>
+            <a href="events.html" class="quick-card">
+                <span>📅</span>
+                <strong>Manage Events</strong>
+                <p>Add and view wedding events</p>
+            </a>
+        </div>
+
+    </main>
+
+    <script type="module">
+        import { supabase } from './app.js';
+
+        // Auth guard
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) { window.location.href = 'index.html'; }
+
+        // Welcome message
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('full_name, role')
+            .eq('id', session.user.id)
+            .single();
+
+        if (profile) {
+            document.getElementById('welcome-msg').textContent =
+                `Welcome, ${profile.full_name} (${profile.role})`;
+        }
+
+        // Logout
+        document.getElementById('logout-button').addEventListener('click', async () => {
+            await supabase.auth.signOut();
+            window.location.href = 'index.html';
+        });
+
+        // Fetch and render parking grid
+        async function refreshParkingGrid() {
+            const grid = document.getElementById('parking-grid');
+            const gridStatus = document.getElementById('grid-status');
+
+            try {
+                const { data: slots, error: slotsError } = await supabase
+                    .from('parking_slots')
+                    .select('slot_id, slot_number, status')
+                    .order('slot_number');
+
+                if (slotsError) throw slotsError;
+
+                const { data: sessions, error: sessionsError } = await supabase
+                    .from('parking_sessions')
+                    .select('slot_id, vehicles(registration_number)')
+                    .is('exit_time', null);
+
+                if (sessionsError) throw sessionsError;
+
+                const vehicleBySlot = new Map();
+                sessions.forEach(s => {
+                    vehicleBySlot.set(s.slot_id, s.vehicles?.registration_number || 'Unknown');
+                });
+
+                const occupiedSlots = new Set(sessions.map(s => s.slot_id));
+                const unavailableSlots = slots.filter(s => s.status === 'unavailable');
+                const availableCount = slots.filter(s => s.status !== 'unavailable' && !occupiedSlots.has(s.slot_id)).length;
+
+                document.getElementById('total-count').textContent = slots.length;
+                document.getElementById('available-count').textContent = availableCount;
+                document.getElementById('occupied-count').textContent = occupiedSlots.size;
+                document.getElementById('unavailable-count').textContent = unavailableSlots.length;
+
+                grid.replaceChildren();
+                gridStatus.textContent = '';
+
+                slots.forEach(slot => {
+                    const occupied = occupiedSlots.has(slot.slot_id);
+                    const state = slot.status === 'unavailable' ? 'unavailable'
+                        : occupied ? 'occupied' : 'available';
+
+                    const tile = document.createElement('div');
+                    tile.className = `parking-slot ${state}`;
+                    tile.title = occupied
+                        ? `P${slot.slot_number} — ${vehicleBySlot.get(slot.slot_id)}`
+                        : `P${slot.slot_number} — ${state}`;
+
+                    tile.innerHTML = `
+                        <div class="slot-number">P${slot.slot_number}</div>
+                        <div class="slot-registration">${occupied ? vehicleBySlot.get(slot.slot_id) : 'No vehicle'}</div>
+                        <div class="slot-status">${state.charAt(0).toUpperCase() + state.slice(1)}</div>
+                    `;
+                    grid.appendChild(tile);
+                });
+
+            } catch (err) {
+                gridStatus.textContent = 'Could not load parking grid: ' + err.message;
+            }
+        }
+
+        await refreshParkingGrid();
+    </script>
+
+    <script src="sidebar.js"></script>
+</body>
+</html>

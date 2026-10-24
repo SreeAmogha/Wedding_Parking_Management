@@ -10,20 +10,20 @@ const sidebarHTML = `
         </div>
 
         <nav class="sidebar-nav">
-            <a href="/" data-page="dashboard">
+            <a href="dashboard.html" data-page="dashboard">
                 <span>▦</span> Dashboard
             </a>
 
-            <a href="/history" data-page="history">
+            <a href="entry-exit.html" data-page="entry-exit">
+                <span>🚘</span> Entry / Exit
+            </a>
+
+            <a href="history.html" data-page="history">
                 <span>◷</span> Parking History
             </a>
 
-            <a href="/events" data-page="events">
-                <span>▣</span> Manage Events
-            </a>
-
-            <a href="/parking-slots" data-page="parking-slots">
-                <span>🅿</span> Assign Parking Spots
+            <a href="events.html" data-page="events">
+                <span>📅</span> Manage Events
             </a>
         </nav>
 
@@ -36,28 +36,19 @@ const sidebarHTML = `
 
 document.addEventListener("DOMContentLoaded", () => {
     const container = document.getElementById("sidebar-container");
-
     if (!container) return;
 
     container.innerHTML = sidebarHTML;
 
-    const currentPath = window.location.pathname;
+    // Determine current page from filename
+    const path = window.location.pathname;
+    const filename = path.split('/').pop() || 'dashboard.html';
 
-    let currentPage = "dashboard";
+    let currentPage = 'dashboard';
+    if (filename.includes('entry-exit'))    currentPage = 'entry-exit';
+    else if (filename.includes('history'))  currentPage = 'history';
+    else if (filename.includes('events'))   currentPage = 'events';
 
-    if (currentPath === "/history") {
-        currentPage = "history";
-    } else if (currentPath === "/events") {
-        currentPage = "events";
-    } else if (currentPath === "/parking-slots") {
-        currentPage = "parking-slots";
-    }
-
-    const activeLink = container.querySelector(
-        `[data-page="${currentPage}"]`
-    );
-
-    if (activeLink) {
-        activeLink.classList.add("active");
-    }
+    const activeLink = container.querySelector(`[data-page="${currentPage}"]`);
+    if (activeLink) activeLink.classList.add('active');
 });
