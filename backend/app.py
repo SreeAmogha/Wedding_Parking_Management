@@ -44,7 +44,9 @@ db = create_client(
 )
 
 app = Flask(__name__)
-
+@app.get("/")
+def home():
+    return send_from_directory(str(FRONTEND_DIR), "index.html")
 
 # -------------------- COMMON HELPERS --------------------
 
@@ -117,17 +119,21 @@ def run_query(query):
 
 # -------------------- FRONTEND --------------------
 
-@app.get("/")
-def home():
+@app.get("/dashboard.html")
+def dashboard_page():
     return send_from_directory(
-        str(FRONTEND_DIR), "index.html"
+        str(FRONTEND_DIR), "dashboard.html"
     )
 @app.get("/history")
 def parking_history_page():
     return send_from_directory(
         str(FRONTEND_DIR), "history.html"
     )
-
+@app.get("/entry-exit")
+def entry_exit_page():
+    return send_from_directory(
+        str(FRONTEND_DIR), "entry-exit.html"
+    )
 
 @app.get("/events")
 def events_page():

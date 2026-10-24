@@ -63,11 +63,11 @@
        import { supabase } from './app.js';
        // Auth guard
        const { data: { session } } = await supabase.auth.getSession();
-       if (!session) { window.location.href = 'index.html'; }
+       if (!session) { window.location.href = '/'; }
        // Logout
        document.getElementById('logout-button').addEventListener('click', async () => {
            await supabase.auth.signOut();
-           window.location.href = 'index.html';
+           window.location.href = '/';
        });
        const statusBadgeClass = {
            active: 'badge-parked',

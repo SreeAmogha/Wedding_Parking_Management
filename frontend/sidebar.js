@@ -11,13 +11,13 @@ const sidebarHTML = `
            <a href="dashboard.html" data-page="dashboard">
                <span>▦</span> Dashboard
            </a>
-           <a href="entry-exit.html" data-page="entry-exit">
+           <a href="/entry-exit" data-page="entry-exit">
                <span>🚘</span> Entry / Exit
            </a>
-           <a href="history.html" data-page="history">
+           <a href="/history" data-page="history">
                <span>◷</span> Parking History
            </a>
-           <a href="events.html" data-page="events">
+           <a href="/events" data-page="events">
                <span>📅</span> Manage Events
            </a>
        </nav>
