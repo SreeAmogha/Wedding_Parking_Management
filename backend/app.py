@@ -1,9 +1,10 @@
 import os
 import re
+from datetime import date
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, redirect, request, send_from_directory
 from supabase import create_client
 
 
@@ -55,9 +56,7 @@ def response_error(message, status_code=400):
 
 
 def get_staff():
-    
     """Validate the Supabase login token and staff profile."""
-
     header = request.headers.get("Authorization", "")
 
     if not header.startswith("Bearer "):
@@ -101,6 +100,21 @@ def get_staff():
         401
     )
 
+def require_admin():
+    user, profile, error = get_staff()
+
+    if error:
+        return None, None, error
+
+    # FIXED: Allow both 'admin' and 'manager' roles
+    if profile.get("role") not in ("admin", "manager"):
+        return None, None, response_error(
+            "Admin or Manager access required.",
+            403
+        )
+
+    return user, profile, None
+
 
 def require_staff():
     user, profile, error = get_staff()
@@ -111,10 +125,33 @@ def require_staff():
     return user, profile, None
 
 
+def require_attendant():
+    user, profile, error = require_staff()
+
+    if error:
+        return None, None, error
+
+    # FIXED: Allow 'attendant', 'manager', and 'admin' roles for operations
+    if profile.get("role") not in ("attendant", "manager", "admin"):
+        return None, None, response_error(
+            "Attendant or Manager access required.",
+            403
+        )
+
+    return user, profile, None
+
+
 def run_query(query):
     """Execute a Supabase query and return its data."""
     result = query.execute()
     return result.data
+
+
+
+def refresh_event_statuses():
+    """Keep persisted event statuses in sync with the database date."""
+    run_query(db.rpc("update_wedding_event_statuses"))
+
 
 
 # -------------------- FRONTEND --------------------
@@ -144,9 +181,7 @@ def events_page():
 
 @app.get("/parking-slots")
 def parking_slots_page():
-    return send_from_directory(
-        str(FRONTEND_DIR), "parking-slots.html"
-    )
+    return redirect("/dashboard.html")
 @app.get("/sidebar.js")
 def sidebar_js():
     return send_from_directory(
@@ -187,6 +222,7 @@ def get_events():
         return error
 
     try:
+        refresh_event_statuses()
         events = run_query(
             db.table("wedding_events")
             .select("event_id, event_name, event_date, status")
@@ -197,7 +233,78 @@ def get_events():
 
     except Exception as exc:
         print("EVENTS ERROR:", repr(exc))
-    return response_error("Could not load events.", 500)
+        return response_error("Could not load events.", 500)
+
+
+@app.post("/api/events")
+def create_event():
+    _, _, error = require_admin()
+
+    if error:
+        return error
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return response_error("Event details must be a JSON object.", 400)
+
+    event_name = data.get("event_name")
+    event_date = data.get("event_date")
+    if isinstance(event_name, str):
+        event_name = event_name.strip()
+    if isinstance(event_date, str):
+        event_date = event_date.strip()
+
+    if (
+        not isinstance(event_name, str)
+        or not event_name
+        or not isinstance(event_date, str)
+        or not event_date
+    ):
+        return response_error(
+            "Event name and event date are required.",
+            400
+        )
+
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", event_date):
+        return response_error(
+            "Event date must be a valid YYYY-MM-DD date.",
+            400
+        )
+
+    try:
+        parsed_date = date.fromisoformat(event_date)
+    except ValueError:
+        return response_error(
+            "Event date must be a valid YYYY-MM-DD date.",
+            400
+        )
+
+    try:
+        result = run_query(
+            db.table("wedding_events")
+            .insert({
+                "event_name": event_name,
+                "event_date": parsed_date.isoformat()
+            })
+            .select("event_id, event_name, event_date, status")
+        )
+        refresh_event_statuses()
+        event = run_query(
+            db.table("wedding_events")
+            .select("event_id, event_name, event_date, status")
+            .eq("event_id", result[0]["event_id"])
+            .single()
+        )
+
+        return jsonify({
+            "message": "Event created successfully.",
+            "event": event
+        }), 201
+
+    except Exception as exc:
+        print("CREATE EVENT ERROR:", repr(exc))
+        return response_error("Could not create event.", 500)
+
 
 # -------------------- PARKING DASHBOARD --------------------
 
@@ -274,7 +381,7 @@ def get_slots():
 
 @app.post("/api/entry")
 def register_entry():
-    _, _, error = require_staff()
+    _, _, error = require_attendant()
 
     if error:
         return error
@@ -321,10 +428,11 @@ def register_entry():
         )
 
     try:
+        refresh_event_statuses()
         # Check that the event exists and can accept entries.
         event = run_query(
             db.table("wedding_events")
-            .select("event_id, status")
+            .select("event_id, event_date, status")
             .eq("event_id", event_id)
             .maybe_single()
         )
@@ -382,16 +490,16 @@ def register_entry():
         }), 201
 
     except Exception as exc:
-     import traceback
-    traceback.print_exc()
-    return response_error("Entry failed: " + str(exc), 400)
+        import traceback
+        traceback.print_exc()
+        return response_error("Entry failed: " + str(exc), 400)
 
 
 # -------------------- VEHICLE EXIT --------------------
 
 @app.post("/api/exit")
 def register_exit():
-    _, _, error = require_staff()
+    _, _, error = require_attendant()
 
     if error:
         return error

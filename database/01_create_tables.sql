@@ -1,11 +1,10 @@
-
 -- Create a table for application user profiles--
 --TABLES--
 CREATE TABLE public.profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     full_name TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'attendant'
-        CHECK (role IN ('admin', 'attendant')),
+        CHECK (role IN ('admin', 'manager', 'attendant')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 -- Enable Row-Level Security

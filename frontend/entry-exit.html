@@ -94,127 +94,104 @@
        </div>
    </main>
    <script type="module">
-       import { supabase } from './app.js';
-       // Auth guard
-       const { data: { session } } = await supabase.auth.getSession();
-       if (!session) { window.location.href = '/'; }
-       // Logout
-       document.getElementById('logout-button').addEventListener('click', async () => {
-           await supabase.auth.signOut();
-           window.location.href = '/';
-       });
-       // Load events into the entry select
-       async function loadEvents() {
-           const eventSelect = document.getElementById('event-select');
-           const { data: events, error } = await supabase
-               .from('wedding_events')
-               .select('event_id, event_name, event_date, status')
-               .order('event_date');
-           eventSelect.replaceChildren();
-           if (error) {
-               const opt = document.createElement('option');
-               opt.textContent = 'Could not load events';
-               eventSelect.appendChild(opt);
-               return;
-           }
-           const defaultOpt = document.createElement('option');
-           defaultOpt.value = '';
-           defaultOpt.textContent = 'Select a wedding event';
-           eventSelect.appendChild(defaultOpt);
-           events
-               .filter(e => e.status === 'active' || e.status === 'planned')
-               .forEach(e => {
-                   const opt = document.createElement('option');
-                   opt.value = e.event_id;
-                   opt.textContent = `${e.event_name} (${e.event_date})`;
-                   eventSelect.appendChild(opt);
-               });
-       }
-       await loadEvents();
-       // ── ENTRY FORM ──
-       document.getElementById('vehicle-entry-form').addEventListener('submit', async (e) => {
-           e.preventDefault();
-           const statusEl = document.getElementById('entry-status');
-           const submitBtn = document.getElementById('register-vehicle-button');
-           const registrationNumber = document.getElementById('registration-number').value.trim().toUpperCase();
-           const vehicleType = document.getElementById('vehicle-type').value;
-           const eventId = document.getElementById('event-select').value;
-           const guestName = document.getElementById('guest-name').value.trim();
-           const guestContact = document.getElementById('guest-contact').value.trim();
-           if (!eventId) {
-               statusEl.textContent = '⚠️ Please select a wedding event.';
-               statusEl.style.color = '#dc2626';
-               return;
-           }
-           submitBtn.disabled = true;
-           statusEl.textContent = 'Registering vehicle…';
-           statusEl.style.color = '#64748b';
-           try {
-               // Upsert vehicle
-               const { data: existingVehicle } = await supabase
-                   .from('vehicles')
-                   .select('vehicle_id')
-                   .eq('registration_number', registrationNumber)
-                   .maybeSingle();
-               let vehicleId;
-               if (existingVehicle) {
-                   vehicleId = existingVehicle.vehicle_id;
-               } else {
-                   const { data: newVehicle, error: insertError } = await supabase
-                       .from('vehicles')
-                       .insert({
-                           registration_number: registrationNumber,
-                           vehicle_type: vehicleType,
-                           guest_name: guestName || null,
-                           guest_contact: guestContact || null
-                       })
-                       .select('vehicle_id')
-                       .single();
-                   if (insertError) throw insertError;
-                   vehicleId = newVehicle.vehicle_id;
+       import { apiRequest, requireRole, supabase } from './app.js';
+       const access = await requireRole(['attendant']);
+       if (access) {
+           document.getElementById('logout-button').addEventListener('click', async () => {
+               await supabase.auth.signOut();
+               window.location.replace('/');
+           });
+
+           async function loadEvents() {
+               const eventSelect = document.getElementById('event-select');
+               eventSelect.replaceChildren();
+               const placeholder = document.createElement('option');
+               placeholder.value = '';
+               placeholder.textContent = 'Loading active events…';
+               eventSelect.appendChild(placeholder);
+
+               try {
+                   const { events } = await apiRequest('/api/events');
+                   eventSelect.replaceChildren();
+                   const defaultOption = document.createElement('option');
+                   defaultOption.value = '';
+                   defaultOption.textContent = events.some(event => event.status === 'active')
+                       ? 'Select an active event'
+                       : 'No active events today';
+                   eventSelect.appendChild(defaultOption);
+                   events.filter(event => event.status === 'active').forEach(event => {
+                       const option = document.createElement('option');
+                       option.value = event.event_id;
+                       option.textContent = `${event.event_name} (${event.event_date})`;
+                       eventSelect.appendChild(option);
+                   });
+               } catch (error) {
+                   eventSelect.replaceChildren();
+                   const option = document.createElement('option');
+                   option.value = '';
+                   option.textContent = 'Could not load events';
+                   eventSelect.appendChild(option);
+                   document.getElementById('entry-status').textContent =
+                       '❌ Could not load events: ' + error.message;
+                   document.getElementById('entry-status').style.color = '#dc2626';
                }
-               const { data: result, error: entryError } = await supabase.rpc(
-                   'register_vehicle_entry',
-                   { p_event_id: Number(eventId), p_vehicle_id: vehicleId }
-               );
-               if (entryError) throw entryError;
-               const assigned = result[0];
-               statusEl.textContent = `✅ Success! Assigned to slot P${assigned.assigned_slot_number}`;
-               statusEl.style.color = '#16a34a';
-               e.target.reset();
-           } catch (err) {
-               statusEl.textContent = '❌ Entry failed: ' + err.message;
-               statusEl.style.color = '#dc2626';
-           } finally {
-               submitBtn.disabled = false;
            }
-       });
-       // ── EXIT FORM ──
-       document.getElementById('vehicle-exit-form').addEventListener('submit', async (e) => {
-           e.preventDefault();
-           const exitStatus = document.getElementById('exit-status');
-           const exitBtn = document.getElementById('register-exit-button');
-           const registrationNumber = document.getElementById('exit-registration-number').value.trim().toUpperCase();
-           exitBtn.disabled = true;
-           exitStatus.textContent = 'Recording exit…';
-           exitStatus.style.color = '#64748b';
-           try {
-               const { data, error } = await supabase.rpc(
-                   'register_vehicle_exit',
-                   { p_registration_number: registrationNumber }
-               );
-               if (error) throw error;
-               const result = data[0];
-               exitStatus.textContent = `✅ Vehicle exited. Slot P${result.freed_slot_number} is now free.`;
-               exitStatus.style.color = '#16a34a';
-               e.target.reset();
-           } catch (err) {
-               exitStatus.textContent = '❌ Exit failed: ' + err.message;
-               exitStatus.style.color = '#dc2626';
-           } finally {
-               exitBtn.disabled = false;
-           }
-       });
+
+           await loadEvents();
+           document.getElementById('vehicle-entry-form').addEventListener('submit', async (e) => {
+               e.preventDefault();
+               const statusEl = document.getElementById('entry-status');
+               const submitBtn = document.getElementById('register-vehicle-button');
+               const body = {
+                   event_id: document.getElementById('event-select').value,
+                   registration_number: document.getElementById('registration-number').value.trim().toUpperCase(),
+                   vehicle_type: document.getElementById('vehicle-type').value,
+                   guest_name: document.getElementById('guest-name').value.trim(),
+                   guest_contact: document.getElementById('guest-contact').value.trim()
+               };
+               submitBtn.disabled = true;
+               statusEl.textContent = 'Registering vehicle…';
+               statusEl.style.color = '#64748b';
+               try {
+                   const result = await apiRequest('/api/entry', {
+                       method: 'POST',
+                       body: JSON.stringify(body)
+                   });
+                   statusEl.textContent = `✅ Success! Assigned to slot P${result.assigned_slot_number}`;
+                   statusEl.style.color = '#16a34a';
+                   e.target.reset();
+               } catch (error) {
+                   statusEl.textContent = '❌ Entry failed: ' + error.message;
+                   statusEl.style.color = '#dc2626';
+               } finally {
+                   submitBtn.disabled = false;
+               }
+           });
+
+           document.getElementById('vehicle-exit-form').addEventListener('submit', async (e) => {
+               e.preventDefault();
+               const statusEl = document.getElementById('exit-status');
+               const submitBtn = document.getElementById('register-exit-button');
+               const registrationNumber = document.getElementById('exit-registration-number').value.trim().toUpperCase();
+               submitBtn.disabled = true;
+               statusEl.textContent = 'Recording exit…';
+               statusEl.style.color = '#64748b';
+               try {
+                   const result = await apiRequest('/api/exit', {
+                       method: 'POST',
+                       body: JSON.stringify({ registration_number: registrationNumber })
+                   });
+                   statusEl.textContent = `✅ Vehicle exited. Slot P${result.freed_slot_number} is now free.`;
+                   statusEl.style.color = '#16a34a';
+                   e.target.reset();
+               } catch (error) {
+                   statusEl.textContent = '❌ Exit failed: ' + error.message;
+                   statusEl.style.color = '#dc2626';
+               } finally {
+                   submitBtn.disabled = false;
+               }
+           });
+       }
    </script>
    <script src="sidebar.js"></script>
 </body>

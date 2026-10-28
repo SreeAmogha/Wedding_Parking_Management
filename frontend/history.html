@@ -54,14 +54,13 @@
        </section>
    </main>
    <script type="module">
-       import { supabase } from './app.js';
-       // Auth guard
-       const { data: { session } } = await supabase.auth.getSession();
-       if (!session) { window.location.href = '/'; }
+       import { requireRole, supabase } from './app.js';
+       const access = await requireRole(['admin', 'attendant']);
+       if (access) {
        // Logout
        document.getElementById('logout-button').addEventListener('click', async () => {
            await supabase.auth.signOut();
-           window.location.href = '/';
+           window.location.replace('/');
        });
        // Load events into dropdown
        async function loadHistoryEvents() {
@@ -143,6 +142,7 @@
            statusEl.style.color = '#16a34a';
        }
        document.getElementById('load-history-btn').addEventListener('click', loadParkingHistory);
+       }
    </script>
    <script src="sidebar.js"></script>
 </body>

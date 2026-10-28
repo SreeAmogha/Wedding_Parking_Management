@@ -22,7 +22,7 @@
                <div class="section-card-header">
                    <h2>📅 Add New Event</h2>
                </div>
-               <p class="section-desc">Create a new wedding event to track parking sessions.</p>
+               <p class="section-desc">Event status is set automatically from its date.</p>
                <form id="add-event-form">
                    <label for="event-name">Event Name</label>
                    <input
@@ -39,12 +39,6 @@
                        name="event_date"
                        required
                    >
-                   <label for="event-status">Status</label>
-                   <select id="event-status" name="status" required>
-                       <option value="planned">Planned</option>
-                       <option value="active">Active</option>
-                       <option value="completed">Completed</option>
-                   </select>
                    <button type="submit" id="add-event-btn" class="btn-primary">Add Event</button>
                    <p id="event-add-status" class="form-status" role="status"></p>
                </form>
@@ -60,14 +54,13 @@
        </div>
    </main>
    <script type="module">
-       import { supabase } from './app.js';
-       // Auth guard
-       const { data: { session } } = await supabase.auth.getSession();
-       if (!session) { window.location.href = '/'; }
+       import { apiRequest, requireRole, supabase } from './app.js';
+       const access = await requireRole(['admin']);
+       if (access) {
        // Logout
        document.getElementById('logout-button').addEventListener('click', async () => {
            await supabase.auth.signOut();
-           window.location.href = '/';
+           window.location.replace('/');
        });
        const statusBadgeClass = {
            active: 'badge-parked',
@@ -78,35 +71,34 @@
        async function loadEvents() {
            const container = document.getElementById('events-list');
            const statusEl = document.getElementById('events-list-status');
-           const { data: events, error } = await supabase
-               .from('wedding_events')
-               .select('event_id, event_name, event_date, status')
-               .order('event_date', { ascending: false });
-           if (error) {
+           try {
+               const { events } = await apiRequest('/api/events');
+               statusEl.textContent = '';
+               container.replaceChildren();
+               if (!events || events.length === 0) {
+                   statusEl.textContent = 'No events yet. Add your first event.';
+                   return;
+               }
+               events.forEach(event => {
+                   const card = document.createElement('div');
+                   card.className = 'event-item';
+                   const info = document.createElement('div');
+                   info.className = 'event-item-info';
+                   const name = document.createElement('strong');
+                   name.textContent = event.event_name;
+                   const date = document.createElement('small');
+                   date.textContent = `📅 ${new Date(`${event.event_date}T00:00:00`).toLocaleDateString('en-IN', { dateStyle: 'long' })}`;
+                   const badge = document.createElement('span');
+                   badge.className = `badge ${statusBadgeClass[event.status] || 'badge-exited'}`;
+                   badge.textContent = event.status.charAt(0).toUpperCase() + event.status.slice(1);
+                   info.append(name, date);
+                   card.append(info, badge);
+                   container.appendChild(card);
+               });
+           } catch (error) {
                statusEl.textContent = '❌ Could not load events: ' + error.message;
                statusEl.style.color = '#dc2626';
-               return;
            }
-           statusEl.textContent = '';
-           container.replaceChildren();
-           if (!events || events.length === 0) {
-               statusEl.textContent = 'No events yet. Add your first event.';
-               return;
-           }
-           events.forEach(event => {
-               const card = document.createElement('div');
-               card.className = 'event-item';
-               card.innerHTML = `
-                   <div class="event-item-info">
-                       <strong>${event.event_name}</strong>
-                       <small>📅 ${new Date(event.event_date).toLocaleDateString('en-IN', { dateStyle: 'long' })}</small>
-                   </div>
-                   <span class="badge ${statusBadgeClass[event.status] || 'badge-exited'}">
-                       ${event.status.charAt(0).toUpperCase() + event.status.slice(1)}
-                   </span>
-               `;
-               container.appendChild(card);
-           });
        }
        await loadEvents();
        // Add event form
@@ -116,24 +108,26 @@
            const btn = document.getElementById('add-event-btn');
            const eventName = document.getElementById('event-name').value.trim();
            const eventDate = document.getElementById('event-date').value;
-           const eventStatus = document.getElementById('event-status').value;
            btn.disabled = true;
            addStatus.textContent = 'Adding event…';
            addStatus.style.color = '#64748b';
-           const { error } = await supabase
-               .from('wedding_events')
-               .insert({ event_name: eventName, event_date: eventDate, status: eventStatus });
-           if (error) {
-               addStatus.textContent = '❌ Could not add event: ' + error.message;
-               addStatus.style.color = '#dc2626';
-           } else {
+           try {
+               await apiRequest('/api/events', {
+                   method: 'POST',
+                   body: JSON.stringify({ event_name: eventName, event_date: eventDate })
+               });
                addStatus.textContent = '✅ Event added successfully!';
                addStatus.style.color = '#16a34a';
                e.target.reset();
                await loadEvents();
+           } catch (error) {
+               addStatus.textContent = '❌ Could not add event: ' + error.message;
+               addStatus.style.color = '#dc2626';
+           } finally {
+               btn.disabled = false;
            }
-           btn.disabled = false;
        });
+       }
    </script>
    <script src="sidebar.js"></script>
 </body>

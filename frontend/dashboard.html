@@ -62,17 +62,17 @@
        </section>
        <!-- Quick links -->
        <div class="quick-links">
-           <a href="entry-exit.html" class="quick-card">
+           <a href="/entry-exit" data-role="attendant" class="quick-card">
                <span>🚘</span>
                <strong>Register Entry / Exit</strong>
                <p>Log vehicle arrivals and departures</p>
            </a>
-           <a href="history.html" class="quick-card">
+           <a href="/history" class="quick-card">
                <span>📋</span>
                <strong>Parking History</strong>
                <p>View past parking sessions by event</p>
            </a>
-           <a href="events.html" class="quick-card">
+           <a href="/events" data-role="admin" class="quick-card">
                <span>📅</span>
                <strong>Manage Events</strong>
                <p>Add and view wedding events</p>
@@ -80,24 +80,16 @@
        </div>
    </main>
    <script type="module">
-       import { supabase } from './app.js';
-       // Auth guard
-       const { data: { session } } = await supabase.auth.getSession();
-       if (!session) { window.location.href = '/'; }
-       // Welcome message
-       const { data: profile } = await supabase
-           .from('profiles')
-           .select('full_name, role')
-           .eq('id', session.user.id)
-           .single();
-       if (profile) {
+       import { requireRole, supabase } from './app.js';
+       const access = await requireRole(['admin', 'attendant']);
+       if (access) {
+       const { profile } = access;
            document.getElementById('welcome-msg').textContent =
                `Welcome, ${profile.full_name} (${profile.role})`;
-       }
        // Logout
        document.getElementById('logout-button').addEventListener('click', async () => {
            await supabase.auth.signOut();
-           window.location.href = '/';
+           window.location.replace('/');
        });
        // Fetch and render parking grid
        async function refreshParkingGrid() {
@@ -148,6 +140,7 @@
            }
        }
        await refreshParkingGrid();
+       }
    </script>
    <script src="sidebar.js"></script>
 </body>
