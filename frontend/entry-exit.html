@@ -111,15 +111,16 @@
                eventSelect.appendChild(placeholder);
 
                try {
-                   const { events } = await apiRequest('/api/events');
+                   const { events = [] } = await apiRequest('/api/events');
+                   const eventList = events || [];
                    eventSelect.replaceChildren();
                    const defaultOption = document.createElement('option');
                    defaultOption.value = '';
-                   defaultOption.textContent = events.some(event => event.status === 'active')
+                   defaultOption.textContent = eventList.some(event => event.status === 'active')
                        ? 'Select an active event'
                        : 'No active events today';
                    eventSelect.appendChild(defaultOption);
-                   events.filter(event => event.status === 'active').forEach(event => {
+                   eventList.filter(event => event.status === 'active').forEach(event => {
                        const option = document.createElement('option');
                        option.value = event.event_id;
                        option.textContent = `${event.event_name} (${event.event_date})`;

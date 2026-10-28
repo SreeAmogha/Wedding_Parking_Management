@@ -52,12 +52,29 @@ management, and parking history. Attendants see the dashboard, entry/exit, and
 parking history. Event creation is checked by both the Flask API and Supabase
 row-level security.
 
+Demo attendant logins (created automatically when the Flask app starts):
+
+- Email: `attendant1@gmail.com` — password: `attendant1`
+- Email: `attendant2@gmail.com` — password: `attendant2`
+
+Re-run these SQL files in the Supabase SQL Editor if vehicle entry/exit still
+fails after pulling this branch:
+
+1. `database/Function.sql`
+2. `database/vehicle_exit.sql`
+
 ## Run locally
 
 From the repository root, start the backend with:
 
 ```powershell
 python backend\app.py
+```
+
+On macOS or Linux:
+
+```bash
+python backend/app.py
 ```
 
 Then open `http://127.0.0.1:5000`. Vehicle entry is available only for an event

@@ -56,7 +56,20 @@ export async function apiRequest(path, options = {}) {
             Authorization: `Bearer ${session.access_token}`
         }
     });
-    const result = await response.json();
+
+    const payload = await response.text();
+    let result = {};
+    if (payload) {
+        try {
+            result = JSON.parse(payload);
+        } catch {
+            throw new Error(
+                response.ok
+                    ? 'The server returned an unexpected response.'
+                    : `Request failed (${response.status}).`
+            );
+        }
+    }
 
     if (!response.ok) {
         throw new Error(result.error || 'The request could not be completed.');

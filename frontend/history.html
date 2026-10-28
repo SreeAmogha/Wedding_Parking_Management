@@ -54,7 +54,7 @@
        </section>
    </main>
    <script type="module">
-       import { requireRole, supabase } from './app.js';
+       import { apiRequest, requireRole, supabase } from './app.js';
        const access = await requireRole(['admin', 'attendant']);
        if (access) {
        // Logout
@@ -65,27 +65,27 @@
        // Load events into dropdown
        async function loadHistoryEvents() {
            const select = document.getElementById('history-event-select');
-           const { data: events, error } = await supabase
-               .from('wedding_events')
-               .select('event_id, event_name, event_date')
-               .order('event_date');
            select.replaceChildren();
-           if (error) {
+           try {
+               const { events } = await apiRequest('/api/events');
+               const defaultOpt = document.createElement('option');
+               defaultOpt.value = '';
+               defaultOpt.textContent = 'Select a wedding event';
+               select.appendChild(defaultOpt);
+               (events || []).forEach(e => {
+                   const opt = document.createElement('option');
+                   opt.value = e.event_id;
+                   opt.textContent = `${e.event_name} (${e.event_date})`;
+                   select.appendChild(opt);
+               });
+           } catch (error) {
                const opt = document.createElement('option');
                opt.textContent = 'Could not load events';
                select.appendChild(opt);
-               return;
+               document.getElementById('history-status').textContent =
+                   '❌ Could not load events: ' + error.message;
+               document.getElementById('history-status').style.color = '#dc2626';
            }
-           const defaultOpt = document.createElement('option');
-           defaultOpt.value = '';
-           defaultOpt.textContent = 'Select a wedding event';
-           select.appendChild(defaultOpt);
-           events.forEach(e => {
-               const opt = document.createElement('option');
-               opt.value = e.event_id;
-               opt.textContent = `${e.event_name} (${e.event_date})`;
-               select.appendChild(opt);
-           });
        }
        await loadHistoryEvents();
        // Load parking history for selected event
@@ -101,17 +101,11 @@
            statusEl.textContent = 'Loading parking history…';
            statusEl.style.color = '#64748b';
            tbody.replaceChildren();
-           const { data: sessions, error } = await supabase
-               .from('parking_sessions')
-               .select(`
-                   entry_time,
-                   exit_time,
-                   vehicles(registration_number, guest_name),
-                   parking_slots(slot_number)
-               `)
-               .eq('event_id', Number(eventId))
-               .order('entry_time', { ascending: false });
-           if (error) {
+           let sessions;
+           try {
+               const result = await apiRequest(`/api/history?event_id=${encodeURIComponent(eventId)}`);
+               sessions = result.sessions || [];
+           } catch (error) {
                statusEl.textContent = '❌ Could not load history: ' + error.message;
                statusEl.style.color = '#dc2626';
                return;

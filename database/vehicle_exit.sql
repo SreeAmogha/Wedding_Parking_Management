@@ -1,6 +1,9 @@
+DROP FUNCTION IF EXISTS public.register_vehicle_exit(TEXT);
+DROP FUNCTION IF EXISTS public.register_vehicle_exit(TEXT, UUID);
 
 CREATE OR REPLACE FUNCTION public.register_vehicle_exit(
-    p_registration_number TEXT
+    p_registration_number TEXT,
+    p_recorded_by UUID DEFAULT NULL
 )
 RETURNS TABLE (
     completed_session_id BIGINT,
@@ -16,24 +19,21 @@ DECLARE
     v_slot_id BIGINT;
     v_slot_number INTEGER;
 BEGIN
-    -- Verify that the user is logged in
-    v_user_id := auth.uid();
+    v_user_id := COALESCE(p_recorded_by, auth.uid());
 
     IF v_user_id IS NULL THEN
         RAISE EXCEPTION 'You must be logged in.';
     END IF;
 
-    -- Only attendants can record exits
     IF NOT EXISTS (
         SELECT 1
         FROM public.profiles p
         WHERE p.id = v_user_id
-          AND p.role = 'attendant'
+          AND p.role IN ('attendant', 'manager', 'admin')
     ) THEN
-        RAISE EXCEPTION 'Only attendants can register vehicle exits.';
+        RAISE EXCEPTION 'Only staff can register vehicle exits.';
     END IF;
 
-    -- Find the vehicle's active parking session and lock it
     SELECT s.session_id, s.slot_id, ps.slot_number
     INTO v_session_id, v_slot_id, v_slot_number
     FROM public.parking_sessions s
@@ -49,13 +49,11 @@ BEGIN
         RAISE EXCEPTION 'No active parking session found for this vehicle.';
     END IF;
 
-    -- Record the vehicle's exit
     UPDATE public.parking_sessions
     SET exit_time = NOW(),
         exit_recorded_by = v_user_id
     WHERE session_id = v_session_id;
 
-    -- Add an immutable-style audit record
     INSERT INTO public.parking_events (
         session_id,
         action_type,
@@ -70,16 +68,15 @@ BEGIN
             || v_slot_number::TEXT || ' released.'
     );
 
-    -- Return the completed session and released slot
     RETURN QUERY
     SELECT v_session_id, v_slot_number;
 END;
 $$;
 
 REVOKE ALL ON FUNCTION
-    public.register_vehicle_exit(TEXT)
+    public.register_vehicle_exit(TEXT, UUID)
 FROM PUBLIC, anon;
 
 GRANT EXECUTE ON FUNCTION
-    public.register_vehicle_exit(TEXT)
-TO authenticated;
+    public.register_vehicle_exit(TEXT, UUID)
+TO authenticated, service_role;

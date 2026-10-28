@@ -155,6 +155,14 @@ def first_row(data):
     return data
 
 
+def related_row(value):
+    if isinstance(value, list):
+        return value[0] if value else {}
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
 def run_staff_rpc(name, params):
     """Call a database function as service role, then as the signed-in user."""
     try:
@@ -201,7 +209,9 @@ def find_auth_user_id_by_email(email):
             result = db.auth.admin.list_users()
 
         users = result
-        if not isinstance(users, list):
+        if isinstance(users, dict):
+            users = users.get("users") or users.get("data") or []
+        elif not isinstance(users, list):
             users = (
                 getattr(result, "users", None)
                 or getattr(result, "data", None)
@@ -487,7 +497,7 @@ def get_slots():
 
         vehicle_by_slot = {
             str(session["slot_id"]):
-                (session.get("vehicles") or {}).get(
+                related_row(session.get("vehicles")).get(
                     "registration_number", "Unknown"
                 )
             for session in sessions
@@ -729,6 +739,10 @@ def get_history():
             .eq("event_id", event_id)
             .order("entry_time", desc=True)
         )
+
+        for session in sessions or []:
+            session["vehicles"] = related_row(session.get("vehicles"))
+            session["parking_slots"] = related_row(session.get("parking_slots"))
 
         return jsonify({"sessions": sessions})
 

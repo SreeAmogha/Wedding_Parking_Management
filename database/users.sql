@@ -5,6 +5,10 @@ VALUES (
     'Name',
     'attendant'
 );
+
+-- Demo attendants are created from the Flask app on startup:
+-- attendant1@gmail.com / attendant1
+-- attendant2@gmail.com / attendant2
 */
 SELECT
     conname AS constraint_name,

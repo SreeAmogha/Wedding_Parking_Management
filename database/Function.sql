@@ -1,7 +1,10 @@
+DROP FUNCTION IF EXISTS public.register_vehicle_entry(BIGINT, BIGINT);
+DROP FUNCTION IF EXISTS public.register_vehicle_entry(BIGINT, BIGINT, UUID);
 
 CREATE OR REPLACE FUNCTION public.register_vehicle_entry(
     p_event_id BIGINT,
-    p_vehicle_id BIGINT
+    p_vehicle_id BIGINT,
+    p_recorded_by UUID DEFAULT NULL
 )
 RETURNS TABLE (
     assigned_session_id BIGINT,
@@ -17,24 +20,21 @@ DECLARE
     v_slot_number INTEGER;
     v_session_id BIGINT;
 BEGIN
-    -- 1. Check login
-    v_user_id := auth.uid();
+    v_user_id := COALESCE(p_recorded_by, auth.uid());
 
     IF v_user_id IS NULL THEN
         RAISE EXCEPTION 'You must be logged in.';
     END IF;
 
-    -- 2. Verify attendant role
     IF NOT EXISTS (
         SELECT 1
         FROM public.profiles p
         WHERE p.id = v_user_id
-          AND p.role = 'attendant'
+          AND p.role IN ('attendant', 'manager', 'admin')
     ) THEN
-        RAISE EXCEPTION 'Only attendants can register vehicle entries.';
+        RAISE EXCEPTION 'Only staff can register vehicle entries.';
     END IF;
 
-    -- 3. Verify wedding event is active
     IF NOT EXISTS (
         SELECT 1
         FROM public.wedding_events e
@@ -44,7 +44,6 @@ BEGIN
         RAISE EXCEPTION 'The wedding event does not exist or is not active.';
     END IF;
 
-    -- 4. Find and lock a free, usable parking slot
     SELECT ps.slot_id, ps.slot_number
     INTO v_slot_id, v_slot_number
     FROM public.parking_slots ps
@@ -63,7 +62,6 @@ BEGIN
         RAISE EXCEPTION 'No parking slots are currently available.';
     END IF;
 
-    -- 5. Create the parking session
     INSERT INTO public.parking_sessions (
         event_id,
         vehicle_id,
@@ -78,7 +76,6 @@ BEGIN
     )
     RETURNING session_id INTO v_session_id;
 
-    -- 6. Record the entry in the audit log
     INSERT INTO public.parking_events (
         session_id,
         action_type,
@@ -93,17 +90,15 @@ BEGIN
             || v_slot_number::TEXT || ' assigned.'
     );
 
-    -- 7. Return the assigned session and slot
     RETURN QUERY
     SELECT v_session_id, v_slot_number;
 END;
 $$;
 
--- Restrict function execution to authenticated users
 REVOKE ALL ON FUNCTION
-    public.register_vehicle_entry(BIGINT, BIGINT)
+    public.register_vehicle_entry(BIGINT, BIGINT, UUID)
 FROM PUBLIC, anon;
 
 GRANT EXECUTE ON FUNCTION
-    public.register_vehicle_entry(BIGINT, BIGINT)
-TO authenticated;
+    public.register_vehicle_entry(BIGINT, BIGINT, UUID)
+TO authenticated, service_role;
