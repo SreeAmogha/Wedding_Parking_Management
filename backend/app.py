@@ -147,10 +147,144 @@ def run_query(query):
     return result.data
 
 
+def first_row(data):
+    if not data:
+        return None
+    if isinstance(data, list):
+        return data[0] if data else None
+    return data
+
+
+def run_staff_rpc(name, params):
+    """Call a database function as service role, then as the signed-in user."""
+    try:
+        return run_query(db.rpc(name, params))
+    except Exception as exc:
+        print(f"RPC {name} as service role failed:", repr(exc))
+
+    header = request.headers.get("Authorization", "")
+    token = header.split(" ", 1)[1].strip() if header.startswith("Bearer ") else ""
+    staff_db = create_client(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
+    if token:
+        staff_db.postgrest.auth(token)
+
+    fallback = {
+        key: value
+        for key, value in params.items()
+        if key != "p_recorded_by"
+    }
+    return staff_db.rpc(name, fallback).execute().data
+
 
 def refresh_event_statuses():
     """Keep persisted event statuses in sync with the database date."""
-    run_query(db.rpc("update_wedding_event_statuses"))
+    for rpc_name in (
+        "refresh_wedding_event_statuses",
+        "update_wedding_event_statuses",
+    ):
+        try:
+            run_query(db.rpc(rpc_name))
+            return
+        except Exception as exc:
+            print(f"EVENT STATUS REFRESH ({rpc_name}):", repr(exc))
+
+
+def find_auth_user_id_by_email(email):
+    """Find an Auth user id by email across list_users pages."""
+    email = (email or "").strip().lower()
+    page = 1
+
+    while page <= 20:
+        try:
+            result = db.auth.admin.list_users(page=page, per_page=200)
+        except TypeError:
+            result = db.auth.admin.list_users()
+
+        users = result
+        if not isinstance(users, list):
+            users = (
+                getattr(result, "users", None)
+                or getattr(result, "data", None)
+                or []
+            )
+
+        for user in users:
+            user_email = (getattr(user, "email", None) or "").lower()
+            if user_email == email:
+                return str(user.id)
+
+        if len(users) < 200:
+            return None
+
+        page += 1
+
+    return None
+
+
+def ensure_demo_staff():
+    """Create the extra attendant login used by the project demo."""
+    demo_staff = (
+        {
+            "email": "attendant1@gmail.com",
+            "password": "attendant1",
+            "full_name": "Attendant 1",
+            "role": "attendant",
+        },
+        {
+            "email": "attendant2@gmail.com",
+            "password": "attendant2",
+            "full_name": "Attendant 2",
+            "role": "attendant",
+        },
+    )
+
+    for staff in demo_staff:
+        user_id = None
+
+        try:
+            created = db.auth.admin.create_user(
+                {
+                    "email": staff["email"],
+                    "password": staff["password"],
+                    "email_confirm": True,
+                }
+            )
+            user_id = str(created.user.id)
+            print("Created demo staff user:", staff["email"])
+        except Exception as exc:
+            print("Demo staff create:", staff["email"], repr(exc))
+            user_id = find_auth_user_id_by_email(staff["email"])
+            if user_id:
+                try:
+                    db.auth.admin.update_user_by_id(
+                        user_id,
+                        {
+                            "password": staff["password"],
+                            "email_confirm": True,
+                        },
+                    )
+                except Exception as update_exc:
+                    print(
+                        "Demo staff password update:",
+                        staff["email"],
+                        repr(update_exc),
+                    )
+
+        if not user_id:
+            print("Could not resolve demo staff user:", staff["email"])
+            continue
+
+        try:
+            db.table("profiles").upsert(
+                {
+                    "id": user_id,
+                    "full_name": staff["full_name"],
+                    "role": staff["role"],
+                }
+            ).execute()
+            print("Ensured staff profile:", staff["email"], staff["role"])
+        except Exception as exc:
+            print("Demo staff profile error:", staff["email"], repr(exc))
 
 
 
@@ -182,6 +316,21 @@ def events_page():
 @app.get("/parking-slots")
 def parking_slots_page():
     return redirect("/dashboard.html")
+
+
+@app.get("/history.html")
+def parking_history_html():
+    return redirect("/history")
+
+
+@app.get("/entry-exit.html")
+def entry_exit_html():
+    return redirect("/entry-exit")
+
+
+@app.get("/events.html")
+def events_html():
+    return redirect("/events")
 @app.get("/sidebar.js")
 def sidebar_js():
     return send_from_directory(
@@ -288,13 +437,19 @@ def create_event():
             })
             .select("event_id, event_name, event_date, status")
         )
+        created = first_row(result)
+        if not created:
+            return response_error("Could not create event.", 500)
+
         refresh_event_statuses()
-        event = run_query(
-            db.table("wedding_events")
-            .select("event_id, event_name, event_date, status")
-            .eq("event_id", result[0]["event_id"])
-            .single()
-        )
+        event = first_row(
+            run_query(
+                db.table("wedding_events")
+                .select("event_id, event_name, event_date, status")
+                .eq("event_id", created["event_id"])
+                .limit(1)
+            )
+        ) or created
 
         return jsonify({
             "message": "Event created successfully.",
@@ -381,7 +536,7 @@ def get_slots():
 
 @app.post("/api/entry")
 def register_entry():
-    _, _, error = require_attendant()
+    user, _, error = require_attendant()
 
     if error:
         return error
@@ -429,12 +584,13 @@ def register_entry():
 
     try:
         refresh_event_statuses()
-        # Check that the event exists and can accept entries.
-        event = run_query(
-            db.table("wedding_events")
-            .select("event_id, event_date, status")
-            .eq("event_id", event_id)
-            .maybe_single()
+        event = first_row(
+            run_query(
+                db.table("wedding_events")
+                .select("event_id, event_date, status")
+                .eq("event_id", event_id)
+                .limit(1)
+            )
         )
 
         if not event:
@@ -445,43 +601,51 @@ def register_entry():
                 "Vehicle entry is allowed only for active events."
             )
 
-        # Reuse an existing vehicle when its number is known.
-        existing = run_query(
-            db.table("vehicles")
-            .select("vehicle_id")
-            .eq("registration_number", registration)
-            .maybe_single()
+        existing = first_row(
+            run_query(
+                db.table("vehicles")
+                .select("vehicle_id")
+                .eq("registration_number", registration)
+                .limit(1)
+            )
         )
 
         if existing:
             vehicle_id = existing["vehicle_id"]
         else:
-            new_vehicle = run_query(
-                db.table("vehicles")
-                .insert({
-                    "registration_number": registration,
-                    "vehicle_type": vehicle_type,
-                    "guest_name": guest_name or None,
-                    "guest_contact": guest_contact or None
-                })
-                .select("vehicle_id")
-                .single()
+            new_vehicle = first_row(
+                run_query(
+                    db.table("vehicles")
+                    .insert({
+                        "registration_number": registration,
+                        "vehicle_type": vehicle_type,
+                        "guest_name": guest_name or None,
+                        "guest_contact": guest_contact or None
+                    })
+                    .select("vehicle_id")
+                )
             )
+
+            if not new_vehicle:
+                return response_error("Could not register the vehicle.", 500)
 
             vehicle_id = new_vehicle["vehicle_id"]
 
-        # Use the existing database function for slot assignment.
-        result = run_query(
-            db.rpc(
-                "register_vehicle_entry",
-                {
-                    "p_event_id": event_id,
-                    "p_vehicle_id": vehicle_id
-                }
-            )
+        result = run_staff_rpc(
+            "register_vehicle_entry",
+            {
+                "p_event_id": event_id,
+                "p_vehicle_id": vehicle_id,
+                "p_recorded_by": str(user.id)
+            }
         )
 
-        assigned = result[0] if isinstance(result, list) else result
+        assigned = first_row(result)
+        if not assigned or assigned.get("assigned_slot_number") is None:
+            return response_error(
+                "Entry failed: no parking slot was assigned.",
+                400
+            )
 
         return jsonify({
             "message": "Vehicle registered successfully.",
@@ -499,7 +663,7 @@ def register_entry():
 
 @app.post("/api/exit")
 def register_exit():
-    _, _, error = require_attendant()
+    user, _, error = require_attendant()
 
     if error:
         return error
@@ -516,16 +680,20 @@ def register_exit():
         )
 
     try:
-        result = run_query(
-            db.rpc(
-                "register_vehicle_exit",
-                {
-                    "p_registration_number": registration
-                }
-            )
+        result = run_staff_rpc(
+            "register_vehicle_exit",
+            {
+                "p_registration_number": registration,
+                "p_recorded_by": str(user.id)
+            }
         )
 
-        exited = result[0] if isinstance(result, list) else result
+        exited = first_row(result)
+        if not exited or exited.get("freed_slot_number") is None:
+            return response_error(
+                "Exit failed: no active parking session was found.",
+                400
+            )
 
         return jsonify({
             "message": "Vehicle exit recorded successfully.",
@@ -555,7 +723,7 @@ def get_history():
             .select("""
                 entry_time,
                 exit_time,
-                vehicles(registration_number),
+                vehicles(registration_number, guest_name),
                 parking_slots(slot_number)
             """)
             .eq("event_id", event_id)
@@ -574,4 +742,5 @@ def get_history():
 # -------------------- START SERVER --------------------
 
 if __name__ == "__main__":
+    ensure_demo_staff()
     app.run(host="127.0.0.1", port=5000, debug=True)
