@@ -325,7 +325,14 @@ def events_page():
 
 @app.get("/parking-slots")
 def parking_slots_page():
-    return redirect("/dashboard.html")
+    return send_from_directory(
+        str(FRONTEND_DIR), "parking-slots.html"
+    )
+
+
+@app.get("/parking-slots.html")
+def parking_slots_html():
+    return redirect("/parking-slots")
 
 
 @app.get("/history.html")
@@ -539,7 +546,8 @@ def get_slots():
         })
 
     except Exception as exc:
-        return response_error(str(exc), 500)
+        print("SLOTS ERROR:", repr(exc))
+        return response_error("Could not load parking slots.", 500)
 
 
 # -------------------- VEHICLE ENTRY --------------------

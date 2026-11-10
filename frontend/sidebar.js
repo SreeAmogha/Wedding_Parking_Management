@@ -11,13 +11,16 @@ const sidebarHTML = `
            <a href="dashboard.html" data-page="dashboard">
                <span>▦</span> Dashboard
            </a>
-           <a href="/entry-exit" data-page="entry-exit" data-role="attendant">
+           <a href="/parking-slots" data-page="parking-slots">
+               <span>🅿</span> Parking Slots
+           </a>
+           <a href="/entry-exit" data-page="entry-exit" data-roles="attendant,manager,admin">
                <span>🚘</span> Entry / Exit
            </a>
            <a href="/history" data-page="history">
                <span>◷</span> Parking History
            </a>
-           <a href="/events" data-page="events" data-role="admin">
+           <a href="/events" data-page="events" data-roles="admin,manager">
                <span>📅</span> Manage Events
            </a>
        </nav>
@@ -44,13 +47,22 @@ document.addEventListener("DOMContentLoaded", async () => {
            console.error("Could not load staff role for navigation:", error);
            return;
        }
-       container.querySelectorAll("[data-role]").forEach(link => {
-           link.hidden = link.dataset.role !== profile.role;
+       const roleAllowed = (el) => {
+           const roles = (el.dataset.roles || el.dataset.role || "")
+               .split(",")
+               .map(role => role.trim())
+               .filter(Boolean);
+           return roles.length === 0 || roles.includes(profile.role);
+       };
+       container.querySelectorAll("[data-role], [data-roles]").forEach(link => {
+           link.hidden = !roleAllowed(link);
        });
        const footerRole = container.querySelector(".sidebar-footer small");
-       footerRole.textContent = profile.role === "admin" ? "Administrator Panel" : "Attendant Panel";
-       document.querySelectorAll(".quick-links [data-role]").forEach(link => {
-           link.hidden = link.dataset.role !== profile.role;
+       footerRole.textContent = profile.role === "admin" || profile.role === "manager"
+           ? "Administrator Panel"
+           : "Attendant Panel";
+       document.querySelectorAll(".quick-links [data-role], .quick-links [data-roles]").forEach(link => {
+           link.hidden = !roleAllowed(link);
        });
    } catch (error) {
        console.error("Could not initialize role-based navigation:", error);
@@ -59,7 +71,8 @@ document.addEventListener("DOMContentLoaded", async () => {
    const path = window.location.pathname;
    const filename = path.split('/').pop() || 'dashboard.html';
    let currentPage = 'dashboard';
-   if (filename.includes('entry-exit'))    currentPage = 'entry-exit';
+   if (filename.includes('parking-slots')) currentPage = 'parking-slots';
+   else if (filename.includes('entry-exit'))    currentPage = 'entry-exit';
    else if (filename.includes('history'))  currentPage = 'history';
    else if (filename.includes('events'))   currentPage = 'events';
    const activeLink = container.querySelector(`[data-page="${currentPage}"]`);

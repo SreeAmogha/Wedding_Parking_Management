@@ -95,7 +95,7 @@
    </main>
    <script type="module">
        import { apiRequest, requireRole, supabase } from './app.js';
-       const access = await requireRole(['attendant']);
+       const access = await requireRole(['attendant', 'manager', 'admin']);
        if (access) {
            document.getElementById('logout-button').addEventListener('click', async () => {
                await supabase.auth.signOut();

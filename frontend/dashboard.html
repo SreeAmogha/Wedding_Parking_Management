@@ -62,7 +62,12 @@
        </section>
        <!-- Quick links -->
        <div class="quick-links">
-           <a href="/entry-exit" data-role="attendant" class="quick-card">
+           <a href="/parking-slots" class="quick-card">
+               <span>🅿</span>
+               <strong>Parking Slots</strong>
+               <p>See live availability and assigned vehicles</p>
+           </a>
+           <a href="/entry-exit" data-roles="attendant,manager,admin" class="quick-card">
                <span>🚘</span>
                <strong>Register Entry / Exit</strong>
                <p>Log vehicle arrivals and departures</p>
@@ -72,7 +77,7 @@
                <strong>Parking History</strong>
                <p>View past parking sessions by event</p>
            </a>
-           <a href="/events" data-role="admin" class="quick-card">
+           <a href="/events" data-roles="admin,manager" class="quick-card">
                <span>📅</span>
                <strong>Manage Events</strong>
                <p>Add and view wedding events</p>
@@ -81,7 +86,7 @@
    </main>
    <script type="module">
        import { apiRequest, requireRole, supabase } from './app.js';
-       const access = await requireRole(['admin', 'attendant']);
+       const access = await requireRole(['admin', 'manager', 'attendant']);
        if (access) {
        const { profile } = access;
            document.getElementById('welcome-msg').textContent =
@@ -104,6 +109,10 @@
                document.getElementById('occupied-count').textContent = data.occupied ?? 0;
                document.getElementById('unavailable-count').textContent = unavailableSlots.length;
                grid.replaceChildren();
+               if (slots.length === 0) {
+                   gridStatus.textContent = 'No parking slots found. Run database/02_insert_parking_slots.sql in Supabase.';
+                   return;
+               }
                gridStatus.textContent = '';
                slots.forEach(slot => {
                    const state = slot.display_status || 'available';

@@ -8,6 +8,18 @@ export const supabase = createClient(
     SUPABASE_PUBLISHABLE_KEY
 );
 
+export const STAFF_ROLES = ['admin', 'manager', 'attendant'];
+export const ADMIN_ROLES = ['admin', 'manager'];
+export const ATTENDANT_ROLES = ['attendant', 'manager', 'admin'];
+
+function currentPath() {
+    return window.location.pathname || '/';
+}
+
+function isDashboardPath(path) {
+    return path === '/' || path.endsWith('/dashboard.html') || path.endsWith('/dashboard');
+}
+
 export async function requireRole(allowedRoles) {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
@@ -28,13 +40,11 @@ export async function requireRole(allowedRoles) {
         return null;
     }
 
-    // DEBUG: Check what role is detected in the browser console
-    console.log('Logged-in user profile:', profile);
-    console.log('Allowed roles for this page:', allowedRoles);
-
     if (!allowedRoles.includes(profile.role)) {
         console.warn(`Role "${profile.role}" is not authorized for this page. Redirecting...`);
-        window.location.replace('/dashboard.html');
+        if (!isDashboardPath(currentPath())) {
+            window.location.replace('/dashboard.html');
+        }
         return null;
     }
 
