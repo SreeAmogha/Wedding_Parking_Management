@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Entry / Exit | Smart Wedding Parking</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="sidebar-container"></div>
+
+    <main class="dashboard-content">
+        <div class="page-header">
+            <div>
+                <h1>Vehicle Entry &amp; Exit</h1>
+                <p class="welcome-msg">Register vehicle arrivals for active wedding events and record departures</p>
+            </div>
+            <button id="logout-button" class="logout-btn">Sign Out</button>
+        </div>
+
+        <!-- Active Event Status Notification Banner -->
+        <div id="active-event-alert"></div>
+
+        <div class="two-col-grid">
+            <!-- ── VEHICLE ENTRY ── -->
+            <section class="section-card">
+                <div class="section-card-header">
+                    <h2>🚘 Register Vehicle Entry</h2>
+                </div>
+                <p class="section-desc">Select a wedding event below to assign parking slots to arriving guests.</p>
+
+                <div style="margin-bottom:12px;">
+                    <label for="event-select" style="font-weight:600; font-size:13px; display:block; margin-bottom:4px;">Wedding Event</label>
+                    <select id="event-select" required style="width:100%; padding:10px 12px; border-radius:8px; border:1px solid #cbd5e1; font-size:14px; background:#fff;">
+                        <option value="">Loading events…</option>
+                    </select>
+                </div>
+
+                <!-- Action Bar for Event Status / Quick Activation -->
+                <div id="event-action-bar" style="margin: 8px 0 16px; display: none;"></div>
+
+                <form id="vehicle-entry-form">
+                    <label for="registration-number">Vehicle Registration Number</label>
+                    <input
+                        type="text"
+                        id="registration-number"
+                        placeholder="e.g. KA01AB1234"
+                        required
+                        pattern="[A-Za-z0-9]{10}"
+                        minlength="10"
+                        maxlength="10"
+                        title="Enter exactly 10 letters or digits"
+                    >
+
+                    <label for="vehicle-type">Vehicle Type</label>
+                    <select id="vehicle-type" required>
+                        <option value="">Select vehicle type</option>
+                        <option value="car">Car</option>
+                        <option value="suv">SUV</option>
+                        <option value="bike">Bike</option>
+                        <option value="van">Van</option>
+                        <option value="other">Other</option>
+                    </select>
+
+                    <label for="guest-name">Guest Name</label>
+                    <input
+                        type="text"
+                        id="guest-name"
+                        placeholder="Enter guest name"
+                    >
+
+                    <label for="guest-contact">Guest Contact</label>
+                    <input
+                        type="tel"
+                        id="guest-contact"
+                        placeholder="10-digit contact number"
+                        required
+                        pattern="[0-9]{10}"
+                        minlength="10"
+                        maxlength="10"
+                    >
+
+                    <button type="submit" id="register-vehicle-button" class="btn-primary" style="margin-top: 14px;">
+                        Register &amp; Assign Slot
+                    </button>
+                    <p id="entry-status" class="form-status" role="status"></p>
+                </form>
+            </section>
+
+            <!-- ── VEHICLE EXIT ── -->
+            <section class="section-card">
+                <div class="section-card-header">
+                    <h2>🚪 Register Vehicle Exit</h2>
+                </div>
+                <p class="section-desc">Free up a parking slot when a guest vehicle leaves.</p>
+
+                <form id="vehicle-exit-form">
+                    <label for="exit-registration-number">Vehicle Registration Number</label>
+                    <input
+                        type="text"
+                        id="exit-registration-number"
+                        placeholder="e.g. KA01AB1234"
+                        required
+                        maxlength="20"
+                    >
+
+                    <button type="submit" id="register-exit-button" class="btn-danger" style="margin-top: 14px;">
+                        Record Vehicle Exit
+                    </button>
+                    <p id="exit-status" class="form-status" role="status"></p>
+                </form>
+            </section>
+        </div>
+
+        <!-- Bottom Quick Navigation Links -->
+        <div class="quick-links">
+            <a href="dashboard.html" class="quick-card">
+                <span class="quick-icon">▦</span>
+                <strong>Dashboard</strong>
+                <p>Live parking overview, slot statistics and current status</p>
+                <span class="quick-arrow">&rarr;</span>
+            </a>
+            <a href="parking-slots.html" class="quick-card">
+                <span class="quick-icon">🅿</span>
+                <strong>Parking Slots</strong>
+                <p>Manage individual slot availability and status</p>
+                <span class="quick-arrow">&rarr;</span>
+            </a>
+            <a href="history.html" class="quick-card">
+                <span class="quick-icon">📋</span>
+                <strong>Parking History</strong>
+                <p>View historical logs and past session records</p>
+                <span class="quick-arrow">&rarr;</span>
+            </a>
+            <a href="events.html" class="quick-card">
+                <span class="quick-icon">📅</span>
+                <strong>Manage Events</strong>
+                <p>Create wedding events, update dates, and sync status</p>
+                <span class="quick-arrow">&rarr;</span>
+            </a>
+        </div>
+    </main>
+
+    <script type="module">
+        import { apiRequest, requireRole, supabase } from './app.js';
+
+        // Allow all staff (admin, manager, attendant) on entry-exit
+        const access = await requireRole(['admin', 'manager', 'attendant']);
+        if (access) {
+            document.getElementById('logout-button').addEventListener('click', async () => {
+                await supabase.auth.signOut();
+                window.location.replace('/');
+            });
+
+            const todayStr = new Date().toISOString().split('T')[0];
+            const eventSelect = document.getElementById('event-select');
+            const actionBar = document.getElementById('event-action-bar');
+            const alertContainer = document.getElementById('active-event-alert');
+            const submitBtn = document.getElementById('register-vehicle-button');
+
+            let allEvents = [];
+
+            // Dual-capable event fetcher
+            async function fetchEvents() {
+                try {
+                    const res = await apiRequest('/api/events');
+                    if (res && res.events) return res.events;
+                } catch (e) {
+                    console.warn('API event fetch notice, trying Supabase directly:', e);
+                }
+                const { data, error } = await supabase
+                    .from('wedding_events')
+                    .select('event_id, event_name, event_date, status')
+                    .order('event_date', { ascending: false });
+                if (error) throw error;
+                return data || [];
+            }
+
+            // Dual-capable status updater
+            async function activateEvent(eventId) {
+                try {
+                    await apiRequest(`/api/events/${eventId}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ status: 'active' })
+                    });
+                    return;
+                } catch (e) {
+                    console.warn('API update notice, updating via Supabase directly:', e);
+                }
+                await supabase
+                    .from('wedding_events')
+                    .update({ status: 'active' })
+                    .eq('event_id', eventId);
+            }
+
+            async function loadEvents() {
+                eventSelect.replaceChildren();
+                const placeholder = document.createElement('option');
+                placeholder.value = '';
+                placeholder.textContent = 'Loading events…';
+                eventSelect.appendChild(placeholder);
+
+                try {
+                    allEvents = await fetchEvents();
+                    renderEventDropdown();
+                } catch (error) {
+                    eventSelect.replaceChildren();
+                    const option = document.createElement('option');
+                    option.value = '';
+                    option.textContent = 'Could not load events';
+                    eventSelect.appendChild(option);
+                    document.getElementById('entry-status').textContent = '❌ Could not load events: ' + error.message;
+                    document.getElementById('entry-status').style.color = '#dc2626';
+                }
+            }
+
+            function renderEventDropdown() {
+                eventSelect.replaceChildren();
+                actionBar.replaceChildren();
+                actionBar.style.display = 'none';
+
+                if (allEvents.length === 0) {
+                    const opt = document.createElement('option');
+                    opt.value = '';
+                    opt.textContent = '⚠️ No events found';
+                    eventSelect.appendChild(opt);
+
+                    alertContainer.innerHTML = `
+                        <div class="warning-banner" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; background:#fef3c7; border:1px solid #f59e0b; padding:14px; border-radius:10px; margin-bottom:20px;">
+                            <div>
+                                <strong style="color:#92400e;">⚠️ No Wedding Events Exist</strong>
+                                <p style="margin:4px 0 0; color:#78350f; font-size:13px;">Create an event in Manage Events to start parking registration.</p>
+                            </div>
+                            <a href="events.html" class="btn-primary" style="text-decoration:none; padding:8px 16px; font-size:13px;">➕ Add Event &rarr;</a>
+                        </div>
+                    `;
+                    submitBtn.disabled = true;
+                    return;
+                }
+
+                const activeEvents = allEvents.filter(e => e.status === 'active');
+                const otherEvents = allEvents.filter(e => e.status !== 'active');
+
+                // Default placeholder option
+                const defaultOpt = document.createElement('option');
+                defaultOpt.value = '';
+                defaultOpt.textContent = activeEvents.length > 0 ? '-- Select Wedding Event --' : '-- Select Event to Activate --';
+                eventSelect.appendChild(defaultOpt);
+
+                // Add active events first
+                if (activeEvents.length > 0) {
+                    const activeGroup = document.createElement('optgroup');
+                    activeGroup.label = '── Active Events (Ready for Parking) ──';
+                    activeEvents.forEach((e, idx) => {
+                        const opt = document.createElement('option');
+                        opt.value = e.event_id;
+                        opt.textContent = `🟢 ${e.event_name} (${e.event_date}) — ACTIVE`;
+                        if (idx === 0) {
+                            opt.selected = true; // Pre-select first active event
+                        }
+                        activeGroup.appendChild(opt);
+                    });
+                    eventSelect.appendChild(activeGroup);
+                }
+
+                // Add all other events (planned / completed)
+                if (otherEvents.length > 0) {
+                    const otherGroup = document.createElement('optgroup');
+                    otherGroup.label = '── Other Events (Planned / Completed) ──';
+                    otherEvents.forEach(e => {
+                        const opt = document.createElement('option');
+                        opt.value = e.event_id;
+                        const icon = e.status === 'planned' ? '🔵' : '⚪';
+                        opt.textContent = `${icon} ${e.event_name} (${e.event_date}) [${e.status.toUpperCase()}]`;
+                        otherGroup.appendChild(opt);
+                    });
+                    eventSelect.appendChild(otherGroup);
+                }
+
+                updateSelectedEventState();
+            }
+
+            function updateSelectedEventState() {
+                const selectedId = eventSelect.value;
+                const ev = allEvents.find(e => String(e.event_id) === String(selectedId));
+
+                if (!ev) {
+                    submitBtn.disabled = true;
+                    actionBar.style.display = 'none';
+                    alertContainer.innerHTML = `
+                        <div class="warning-banner" style="background:#fef3c7; border:1px solid #f59e0b; padding:14px; border-radius:10px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                            <div>
+                                <strong style="color:#92400e;">⚠️ Please select an active wedding event</strong>
+                                <p style="margin:4px 0 0; color:#78350f; font-size:13px;">Choose an event from the dropdown above to begin registering vehicles.</p>
+                            </div>
+                            <a href="events.html" class="btn-primary" style="text-decoration:none; padding:8px 16px; font-size:13px;">Manage Events &rarr;</a>
+                        </div>
+                    `;
+                    return;
+                }
+
+                if (ev.status === 'active') {
+                    submitBtn.disabled = false;
+                    actionBar.style.display = 'none';
+                    alertContainer.innerHTML = `
+                        <div class="active-banner" style="background:#ecfdf5; border:1px solid #10b981; padding:14px; border-radius:10px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center;">
+                            <div>
+                                <strong style="color:#065f46;">🟢 ACTIVE EVENT: ${ev.event_name}</strong>
+                                <p style="margin:4px 0 0; color:#047857; font-size:13px;">Date: ${ev.event_date} &bull; System is ready to register guest vehicles and assign parking slots.</p>
+                            </div>
+                            <span class="badge badge-active" style="padding:4px 12px; background:#10b981; color:white; border-radius:20px; font-size:12px; font-weight:bold;">READY</span>
+                        </div>
+                    `;
+                } else {
+                    submitBtn.disabled = true;
+                    alertContainer.innerHTML = `
+                        <div class="warning-banner" style="background:#eff6ff; border:1px solid #3b82f6; padding:14px; border-radius:10px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                            <div>
+                                <strong style="color:#1e40af;">Event "${ev.event_name}" is currently ${ev.status.toUpperCase()}</strong>
+                                <p style="margin:4px 0 0; color:#1e3a8a; font-size:13px;">Vehicle entry requires an ACTIVE event. Click <strong>Activate Event</strong> to enable vehicle entries for this event.</p>
+                            </div>
+                            <button type="button" id="banner-activate-btn" class="btn-primary" style="padding:8px 18px; font-size:13px; background:#16a34a; border:none; cursor:pointer;">
+                                ⚡ Activate Event Now
+                            </button>
+                        </div>
+                    `;
+
+                    document.getElementById('banner-activate-btn')?.addEventListener('click', async () => {
+                        const btn = document.getElementById('banner-activate-btn');
+                        btn.disabled = true;
+                        btn.textContent = 'Activating…';
+                        try {
+                            await activateEvent(ev.event_id);
+                            ev.status = 'active';
+                            await loadEvents();
+                            eventSelect.value = ev.event_id;
+                            updateSelectedEventState();
+                        } catch (err) {
+                            alert('Could not activate event: ' + err.message);
+                            btn.disabled = false;
+                        }
+                    });
+
+                    actionBar.style.display = 'block';
+                    actionBar.innerHTML = `
+                        <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:10px 14px; display:flex; justify-content:space-between; align-items:center; gap:10px;">
+                            <span style="font-size:13px; color:#475569;">Event is ${ev.status.toUpperCase()}. Activate it to enable the registration button below:</span>
+                            <button type="button" id="inline-activate-btn" class="btn-primary" style="padding:6px 14px; font-size:12px; background:#16a34a; border:none; cursor:pointer;">
+                                ⚡ Activate Event
+                            </button>
+                        </div>
+                    `;
+
+                    document.getElementById('inline-activate-btn')?.addEventListener('click', async () => {
+                        const btn = document.getElementById('inline-activate-btn');
+                        btn.disabled = true;
+                        btn.textContent = 'Activating…';
+                        try {
+                            await activateEvent(ev.event_id);
+                            ev.status = 'active';
+                            await loadEvents();
+                            eventSelect.value = ev.event_id;
+                            updateSelectedEventState();
+                        } catch (err) {
+                            alert('Could not activate event: ' + err.message);
+                            btn.disabled = false;
+                        }
+                    });
+                }
+            }
+
+            eventSelect.addEventListener('change', updateSelectedEventState);
+
+            await loadEvents();
+
+            // Vehicle Entry Form Submit (Dual-capable)
+            document.getElementById('vehicle-entry-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const statusEl = document.getElementById('entry-status');
+
+                const selectedId = eventSelect.value;
+                if (!selectedId) {
+                    statusEl.textContent = '⚠️ Please select an active wedding event first.';
+                    statusEl.style.color = '#dc2626';
+                    return;
+                }
+
+                const regNumber = document.getElementById('registration-number').value.trim().toUpperCase();
+                const vehicleType = document.getElementById('vehicle-type').value;
+                const guestName = document.getElementById('guest-name').value.trim();
+                const guestContact = document.getElementById('guest-contact').value.trim();
+
+                submitBtn.disabled = true;
+                statusEl.textContent = 'Registering vehicle and assigning slot…';
+                statusEl.style.color = '#64748b';
+
+                let assignedSlot = null;
+
+                // 1. Try Backend API
+                try {
+                    const result = await apiRequest('/api/entry', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            event_id: selectedId,
+                            registration_number: regNumber,
+                            vehicle_type: vehicleType,
+                            guest_name: guestName,
+                            guest_contact: guestContact
+                        })
+                    });
+                    assignedSlot = result.assigned_slot_number;
+                } catch (apiError) {
+                    console.warn('API entry notice, attempting direct DB procedure:', apiError);
+
+                    // 2. Direct Supabase Fallback using register_vehicle_entry RPC
+                    try {
+                        // Ensure vehicle exists in vehicles table
+                        const { data: vehicleData, error: vehErr } = await supabase
+                            .from('vehicles')
+                            .upsert(
+                                { registration_number: regNumber, vehicle_type: vehicleType, guest_name: guestName, guest_contact: guestContact },
+                                { onConflict: 'registration_number' }
+                            )
+                            .select('vehicle_id')
+                            .single();
+
+                        if (vehErr) throw vehErr;
+
+                        const { data: rpcData, error: rpcErr } = await supabase.rpc('register_vehicle_entry', {
+                            p_event_id: Number(selectedId),
+                            p_vehicle_id: vehicleData.vehicle_id
+                        });
+
+                        if (rpcErr) throw rpcErr;
+                        assignedSlot = rpcData && rpcData[0] ? rpcData[0].assigned_slot_number : 'allocated';
+                    } catch (dbErr) {
+                        statusEl.textContent = '❌ Entry failed: ' + (apiError.message || dbErr.message);
+                        statusEl.style.color = '#dc2626';
+                        submitBtn.disabled = false;
+                        return;
+                    }
+                }
+
+                statusEl.textContent = `✅ Success! Guest registered and assigned to parking slot P${assignedSlot}`;
+                statusEl.style.color = '#16a34a';
+                e.target.reset();
+                document.getElementById('registration-number').focus();
+                submitBtn.disabled = false;
+            });
+
+            // Vehicle Exit Form Submit (Dual-capable)
+            document.getElementById('vehicle-exit-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const statusEl = document.getElementById('exit-status');
+                const exitBtn = document.getElementById('register-exit-button');
+                const regNumber = document.getElementById('exit-registration-number').value.trim().toUpperCase();
+
+                exitBtn.disabled = true;
+                statusEl.textContent = 'Recording vehicle exit…';
+                statusEl.style.color = '#64748b';
+
+                let freedSlot = null;
+
+                try {
+                    const result = await apiRequest('/api/exit', {
+                        method: 'POST',
+                        body: JSON.stringify({ registration_number: regNumber })
+                    });
+                    freedSlot = result.freed_slot_number;
+                } catch (apiError) {
+                    console.warn('API exit notice, trying direct DB RPC:', apiError);
+                    try {
+                        const { data: rpcData, error: rpcErr } = await supabase.rpc('register_vehicle_exit', {
+                            p_registration_number: regNumber
+                        });
+                        if (rpcErr) throw rpcErr;
+                        freedSlot = rpcData && rpcData[0] ? rpcData[0].freed_slot_number : 'released';
+                    } catch (dbErr) {
+                        statusEl.textContent = '❌ Exit failed: ' + (apiError.message || dbErr.message);
+                        statusEl.style.color = '#dc2626';
+                        exitBtn.disabled = false;
+                        return;
+                    }
+                }
+
+                statusEl.textContent = `✅ Vehicle exited. Slot P${freedSlot} is now free and available.`;
+                statusEl.style.color = '#16a34a';
+                e.target.reset();
+                document.getElementById('exit-registration-number').focus();
+                exitBtn.disabled = false;
+            });
+        }
+    </script>
+    <script src="sidebar.js"></script>
+</body>
+</html>

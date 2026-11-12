@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <title>Login | Smart Wedding Parking</title>
+   <link rel="stylesheet" href="style.css">
+</head>
+<body class="login-page">
+   <div class="login-wrapper">
+       <div class="login-card">
+           <div class="login-header">
+               <span class="login-icon">🚗</span>
+               <h1>Smart Wedding Parking</h1>
+               <p>Staff Management Portal</p>
+           </div>
+           <section id="login-section">
+               <h2>Staff Login</h2>
+               <form id="login-form">
+                   <label for="email">Email</label>
+                   <input
+                       type="email"
+                       id="email"
+                       placeholder="staff@example.com"
+                       required
+                       autocomplete="username"
+                   >
+                   <label for="password">Password</label>
+                   <input
+                       type="password"
+                       id="password"
+                       placeholder="••••••••"
+                       required
+                       autocomplete="current-password"
+                   >
+                   <button type="submit" id="login-btn">Sign In</button>
+               </form>
+           </section>
+           <p id="status" class="status-msg">Please sign in with your staff account.</p>
+       </div>
+   </div>
+   <script type="module">
+       import { supabase } from './app.js';
+       const status = document.getElementById('status');
+       const loginForm = document.getElementById('login-form');
+       const loginBtn = document.getElementById('login-btn');
+       // If already logged in, redirect to dashboard
+       const { data: { session } } = await supabase.auth.getSession();
+       if (session) {
+           window.location.href = 'dashboard.html';
+       }
+       loginForm.addEventListener('submit', async (e) => {
+           e.preventDefault();
+           loginBtn.disabled = true;
+           loginBtn.textContent = 'Signing in...';
+           status.textContent = '';
+           const email = document.getElementById('email').value;
+           const password = document.getElementById('password').value;
+           const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+           if (error) {
+               status.textContent = 'Login failed: ' + error.message;
+               status.style.color = '#dc2626';
+               loginBtn.disabled = false;
+               loginBtn.textContent = 'Sign In';
+               return;
+           }
+           // Check staff profile exists
+           const { data: profile, error: profileError } = await supabase
+               .from('profiles')
+               .select('full_name, role')
+               .eq('id', data.user.id)
+               .single();
+           if (profileError || !profile) {
+               status.textContent = 'Could not load staff profile. Contact the administrator.';
+               status.style.color = '#dc2626';
+               await supabase.auth.signOut();
+               loginBtn.disabled = false;
+               loginBtn.textContent = 'Sign In';
+               return;
+           }
+           window.location.href = 'dashboard.html';
+       });
+   </script>
+</body>
+</html>

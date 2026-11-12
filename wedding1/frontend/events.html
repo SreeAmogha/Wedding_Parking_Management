@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Events | Smart Wedding Parking</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="sidebar-container"></div>
+
+    <main class="dashboard-content">
+        <div class="page-header">
+            <div>
+                <h1>Manage Events</h1>
+                <p class="welcome-msg">Create wedding events, update dates, and activate events for vehicle parking</p>
+            </div>
+            <button id="logout-button" class="logout-btn">Sign Out</button>
+        </div>
+
+        <div class="two-col-grid">
+            <!-- Add Event Form -->
+            <section class="section-card">
+                <div class="section-card-header">
+                    <h2>📅 Add New Event</h2>
+                </div>
+                <p class="section-desc">Create a wedding event. Set status to <strong>Active</strong> to immediately allow vehicle registration.</p>
+
+                <form id="add-event-form">
+                    <label for="event-name">Event Name</label>
+                    <input
+                        type="text"
+                        id="event-name"
+                        name="event_name"
+                        placeholder="e.g. Sharma Wedding Reception"
+                        required
+                    >
+
+                    <label for="event-date">Event Date</label>
+                    <input
+                        type="date"
+                        id="event-date"
+                        name="event_date"
+                        required
+                    >
+
+                    <label for="event-status">Status</label>
+                    <select id="event-status" name="status" required>
+                        <option value="active">Active (LIVE for Vehicle Entries)</option>
+                        <option value="planned">Planned (Upcoming)</option>
+                        <option value="completed">Completed (Concluded)</option>
+                    </select>
+
+                    <button type="submit" id="add-event-btn" class="btn-primary" style="margin-top:14px;">Add Event</button>
+                    <p id="event-add-status" class="form-status" role="status"></p>
+                </form>
+            </section>
+
+            <!-- Events List -->
+            <section class="section-card">
+                <div class="section-card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                    <h2>📋 Existing Events</h2>
+                    <span id="today-badge" style="font-size:12px; color:#64748b; font-weight:600;"></span>
+                </div>
+                <p id="events-list-status" class="form-status">Loading events…</p>
+                <div id="events-list" class="events-list"></div>
+            </section>
+        </div>
+
+        <!-- Bottom Quick Navigation Links -->
+        <div class="quick-links">
+            <a href="dashboard.html" class="quick-card">
+                <span class="quick-icon">▦</span>
+                <strong>Dashboard</strong>
+                <p>Live parking overview, slot statistics and current status</p>
+                <span class="quick-arrow">&rarr;</span>
+            </a>
+            <a href="entry-exit.html" class="quick-card">
+                <span class="quick-icon">🚘</span>
+                <strong>Register Entry / Exit</strong>
+                <p>Log vehicle arrivals and slot allocation for active events</p>
+                <span class="quick-arrow">&rarr;</span>
+            </a>
+            <a href="parking-slots.html" class="quick-card">
+                <span class="quick-icon">🅿</span>
+                <strong>Parking Slots</strong>
+                <p>Manage individual slot availability and status</p>
+                <span class="quick-arrow">&rarr;</span>
+            </a>
+            <a href="history.html" class="quick-card">
+                <span class="quick-icon">📋</span>
+                <strong>Parking History</strong>
+                <p>View historical logs and past session records</p>
+                <span class="quick-arrow">&rarr;</span>
+            </a>
+        </div>
+    </main>
+
+    <script type="module">
+        import { apiRequest, requireRole, supabase } from './app.js';
+
+        // Allow all staff (admin, manager, attendant) to access and manage events
+        const access = await requireRole(['admin', 'manager', 'attendant']);
+        if (access) {
+            // Logout
+            document.getElementById('logout-button').addEventListener('click', async () => {
+                await supabase.auth.signOut();
+                window.location.replace('/');
+            });
+
+            const todayStr = new Date().toISOString().split('T')[0];
+            const todayBadge = document.getElementById('today-badge');
+            if (todayBadge) {
+                todayBadge.textContent = 'Today: ' + todayStr;
+            }
+
+            const dateInput = document.getElementById('event-date');
+            if (dateInput) {
+                dateInput.value = todayStr;
+            }
+
+            const statusBadgeClass = {
+                active: 'badge-active',
+                planned: 'badge-planned',
+                completed: 'badge-completed'
+            };
+
+            // Helper to fetch events (dual-capable: API with Supabase fallback)
+            async function fetchAllEvents() {
+                try {
+                    const res = await apiRequest('/api/events');
+                    if (res && res.events) return res.events;
+                } catch (e) {
+                    console.warn('API events notice, fetching from Supabase directly:', e);
+                }
+                const { data, error } = await supabase
+                    .from('wedding_events')
+                    .select('event_id, event_name, event_date, status')
+                    .order('event_date', { ascending: false });
+                if (error) throw error;
+                return data || [];
+            }
+
+            // Helper to update event status (dual-capable)
+            async function setEventStatus(eventId, newStatus) {
+                try {
+                    await apiRequest(`/api/events/${eventId}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ status: newStatus })
+                    });
+                    return;
+                } catch (e) {
+                    console.warn('API update notice, updating via Supabase directly:', e);
+                }
+                const { error } = await supabase
+                    .from('wedding_events')
+                    .update({ status: newStatus })
+                    .eq('event_id', eventId);
+                if (error) throw error;
+            }
+
+            // Load existing events
+            async function loadEvents() {
+                const container = document.getElementById('events-list');
+                const statusEl = document.getElementById('events-list-status');
+
+                try {
+                    const events = await fetchAllEvents();
+                    statusEl.textContent = '';
+                    container.replaceChildren();
+
+                    if (!events || events.length === 0) {
+                        statusEl.textContent = 'No events yet. Add your first event using the form.';
+                        return;
+                    }
+
+                    events.forEach(event => {
+                        const card = document.createElement('div');
+                        card.className = 'event-item';
+                        card.style.cssText = 'padding:14px; margin-bottom:12px; background:#fff; border:1px solid #e2e8f0; border-radius:10px; box-shadow:0 1px 3px rgba(0,0,0,0.05); display:flex; flex-direction:column; gap:10px;';
+
+                        const isToday = event.event_date === todayStr;
+                        const formattedDate = new Date(`${event.event_date}T00:00:00`).toLocaleDateString('en-IN', {
+                            weekday: 'short',
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric'
+                        });
+
+                        const topRow = document.createElement('div');
+                        topRow.style.cssText = 'display:flex; justify-content:space-between; align-items:center;';
+
+                        topRow.innerHTML = `
+                            <div>
+                                <strong style="font-size:15px; color:#0f172a;">${event.event_name}</strong>
+                                <div style="font-size:12px; color:#64748b; margin-top:2px;">
+                                    📅 ${formattedDate} ${isToday ? '<strong style="color:#2563eb;">(TODAY)</strong>' : ''}
+                                </div>
+                            </div>
+                            <span class="badge ${statusBadgeClass[event.status] || 'badge-completed'}" style="padding:4px 10px; border-radius:20px; font-weight:600; font-size:12px;">
+                                ${event.status.toUpperCase()}
+                            </span>
+                        `;
+
+                        // Action buttons
+                        const actionsRow = document.createElement('div');
+                        actionsRow.style.cssText = 'display:flex; gap:8px; flex-wrap:wrap; align-items:center; padding-top:8px; border-top:1px dashed #e2e8f0;';
+
+                        if (event.status !== 'active') {
+                            const activateBtn = document.createElement('button');
+                            activateBtn.type = 'button';
+                            activateBtn.className = 'btn-sm btn-primary';
+                            activateBtn.style.cssText = 'background:#16a34a; border:none; color:white; padding:6px 12px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:bold;';
+                            activateBtn.textContent = '🟢 Set Active';
+                            activateBtn.onclick = async () => {
+                                activateBtn.disabled = true;
+                                activateBtn.textContent = 'Activating…';
+                                try {
+                                    await setEventStatus(event.event_id, 'active');
+                                    await loadEvents();
+                                } catch (err) {
+                                    alert('Could not set active: ' + err.message);
+                                    activateBtn.disabled = false;
+                                }
+                            };
+                            actionsRow.appendChild(activateBtn);
+                        } else {
+                            const completeBtn = document.createElement('button');
+                            completeBtn.type = 'button';
+                            completeBtn.className = 'btn-sm';
+                            completeBtn.style.cssText = 'background:#64748b; color:white; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-size:12px;';
+                            completeBtn.textContent = '⚪ Mark Completed';
+                            completeBtn.onclick = async () => {
+                                completeBtn.disabled = true;
+                                try {
+                                    await setEventStatus(event.event_id, 'completed');
+                                    await loadEvents();
+                                } catch (err) {
+                                    alert('Could not update: ' + err.message);
+                                    completeBtn.disabled = false;
+                                }
+                            };
+                            actionsRow.appendChild(completeBtn);
+                        }
+
+                        if (event.status !== 'planned') {
+                            const planBtn = document.createElement('button');
+                            planBtn.type = 'button';
+                            planBtn.className = 'btn-sm';
+                            planBtn.style.cssText = 'background:#0284c7; color:white; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-size:12px;';
+                            planBtn.textContent = '🔵 Mark Planned';
+                            planBtn.onclick = async () => {
+                                planBtn.disabled = true;
+                                try {
+                                    await setEventStatus(event.event_id, 'planned');
+                                    await loadEvents();
+                                } catch (err) {
+                                    alert('Could not update: ' + err.message);
+                                    planBtn.disabled = false;
+                                }
+                            };
+                            actionsRow.appendChild(planBtn);
+                        }
+
+                        card.appendChild(topRow);
+                        card.appendChild(actionsRow);
+                        container.appendChild(card);
+                    });
+                } catch (error) {
+                    statusEl.textContent = '❌ Could not load events: ' + error.message;
+                    statusEl.style.color = '#dc2626';
+                }
+            }
+
+            await loadEvents();
+
+            // Add event form submit
+            document.getElementById('add-event-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const addStatus = document.getElementById('event-add-status');
+                const btn = document.getElementById('add-event-btn');
+
+                const eventName = document.getElementById('event-name').value.trim();
+                const eventDate = document.getElementById('event-date').value;
+                const eventStatus = document.getElementById('event-status').value;
+
+                btn.disabled = true;
+                addStatus.textContent = 'Adding event…';
+                addStatus.style.color = '#64748b';
+
+                let addedSuccessfully = false;
+
+                // 1. Try API
+                try {
+                    await apiRequest('/api/events', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            event_name: eventName,
+                            event_date: eventDate,
+                            status: eventStatus
+                        })
+                    });
+                    addedSuccessfully = true;
+                } catch (apiErr) {
+                    console.warn('API add notice, trying Supabase directly:', apiErr);
+                }
+
+                // 2. Fallback to Supabase directly if API failed or unavailable
+                if (!addedSuccessfully) {
+                    try {
+                        const { error } = await supabase
+                            .from('wedding_events')
+                            .insert({
+                                event_name: eventName,
+                                event_date: eventDate,
+                                status: eventStatus
+                            });
+                        if (error) throw error;
+                        addedSuccessfully = true;
+                    } catch (dbErr) {
+                        addStatus.textContent = '❌ Could not add event: ' + dbErr.message;
+                        addStatus.style.color = '#dc2626';
+                        btn.disabled = false;
+                        return;
+                    }
+                }
+
+                addStatus.textContent = `✅ Event "${eventName}" added successfully (${eventStatus.toUpperCase()})! It is now visible on the Register page.`;
+                addStatus.style.color = '#16a34a';
+                e.target.reset();
+                document.getElementById('event-date').value = todayStr;
+                await loadEvents();
+                btn.disabled = false;
+            });
+        }
+    </script>
+    <script src="sidebar.js"></script>
+</body>
+</html>

@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parking Slots | Smart Wedding Parking</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="sidebar-container"></div>
+
+    <main class="dashboard-content">
+
+        <div class="page-header">
+            <div>
+                <h1>Parking Slot Management</h1>
+                <p class="welcome-msg">Real-time status of all parking slots and maintenance controls</p>
+            </div>
+            <button id="logout-button" class="logout-btn">Sign Out</button>
+        </div>
+
+        <!-- Stats cards -->
+        <div class="stats-row">
+            <div class="stat-card stat-total">
+                <span class="stat-icon">🅿</span>
+                <div>
+                    <p class="stat-label">Total Slots</p>
+                    <p class="stat-value" id="total-slots">—</p>
+                </div>
+            </div>
+            <div class="stat-card stat-available">
+                <span class="stat-icon">✅</span>
+                <div>
+                    <p class="stat-label">Available</p>
+                    <p class="stat-value" id="available-slots">—</p>
+                </div>
+            </div>
+            <div class="stat-card stat-occupied">
+                <span class="stat-icon">🚗</span>
+                <div>
+                    <p class="stat-label">Occupied</p>
+                    <p class="stat-value" id="occupied-slots">—</p>
+                </div>
+            </div>
+            <div class="stat-card stat-unavailable">
+                <span class="stat-icon">🚫</span>
+                <div>
+                    <p class="stat-label">Unusable / Maintenance</p>
+                    <p class="stat-value" id="unavailable-slots">—</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slot Matrix Section -->
+        <section class="section-card">
+            <div class="section-card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                <h2>Slot Availability &amp; Assignment Matrix</h2>
+                <div class="legend">
+                    <span><i class="dot available"></i> Available</span>
+                    <span><i class="dot occupied"></i> Occupied</span>
+                    <span><i class="dot unavailable"></i> Unusable (Click slot to toggle)</span>
+                </div>
+            </div>
+            <div id="parking-grid" class="parking-grid"></div>
+            <p id="slots-status" class="loading-msg">Loading slots...</p>
+        </section>
+
+        <!-- Bottom Quick Navigation Links -->
+        <div class="quick-links">
+            <a href="dashboard.html" class="quick-card">
+                <span class="quick-icon">▦</span>
+                <strong>Dashboard</strong>
+                <p>Main monitoring dashboard and system summary</p>
+                <span class="quick-arrow">&rarr;</span>
+            </a>
+            <a href="entry-exit.html" class="quick-card">
+                <span class="quick-icon">🚘</span>
+                <strong>Register Entry / Exit</strong>
+                <p>Register incoming vehicles and record departures</p>
+                <span class="quick-arrow">&rarr;</span>
+            </a>
+            <a href="history.html" class="quick-card">
+                <span class="quick-icon">📋</span>
+                <strong>Parking History</strong>
+                <p>Check complete vehicle logs and parking duration</p>
+                <span class="quick-arrow">&rarr;</span>
+            </a>
+            <a href="events.html" class="quick-card">
+                <span class="quick-icon">📅</span>
+                <strong>Manage Events</strong>
+                <p>Add new events, update dates, and sync daily statuses</p>
+                <span class="quick-arrow">&rarr;</span>
+            </a>
+        </div>
+
+    </main>
+
+    <script type="module">
+        import { supabase } from './app.js';
+
+        // Auth guard
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) { window.location.href = 'index.html'; }
+
+        // Logout
+        document.getElementById('logout-button').addEventListener('click', async () => {
+            await supabase.auth.signOut();
+            window.location.href = 'index.html';
+        });
+
+        // Load slots and live assignments
+        async function loadSlotMatrix() {
+            const grid = document.getElementById('parking-grid');
+            const statusEl = document.getElementById('slots-status');
+
+            try {
+                const { data: slots, error: slotsError } = await supabase
+                    .from('parking_slots')
+                    .select('slot_id, slot_number, status')
+                    .order('slot_number');
+
+                if (slotsError) throw slotsError;
+
+                const { data: sessions, error: sessionsError } = await supabase
+                    .from('parking_sessions')
+                    .select('slot_id, vehicles(registration_number, guest_name)')
+                    .is('exit_time', null);
+
+                if (sessionsError) throw sessionsError;
+
+                const vehicleBySlot = new Map();
+                sessions.forEach(s => {
+                    const reg = s.vehicles?.registration_number || 'Occupied';
+                    const guest = s.vehicles?.guest_name ? ` (${s.vehicles.guest_name})` : '';
+                    vehicleBySlot.set(s.slot_id, reg + guest);
+                });
+
+                const occupiedIds = new Set(sessions.map(s => s.slot_id));
+                const unavailableList = slots.filter(s => s.status === 'unavailable');
+                const availableCount = slots.filter(s => s.status !== 'unavailable' && !occupiedIds.has(s.slot_id)).length;
+
+                document.getElementById('total-slots').textContent = slots.length;
+                document.getElementById('available-slots').textContent = availableCount;
+                document.getElementById('occupied-slots').textContent = occupiedIds.size;
+                document.getElementById('unavailable-slots').textContent = unavailableList.length;
+
+                grid.replaceChildren();
+                statusEl.textContent = '💡 Tip: Click any unoccupied slot to toggle between Available and Unusable (Maintenance mode).';
+                statusEl.style.color = '#64748b';
+
+                slots.forEach(slot => {
+                    const occupied = occupiedIds.has(slot.slot_id);
+                    const state = slot.status === 'unavailable' ? 'unavailable'
+                        : occupied ? 'occupied' : 'available';
+
+                    const tile = document.createElement('div');
+                    tile.className = `parking-slot ${state}`;
+                    tile.style.cursor = occupied ? 'default' : 'pointer';
+                    tile.title = occupied 
+                        ? `P${slot.slot_number} — ${vehicleBySlot.get(slot.slot_id)}`
+                        : `Click to toggle P${slot.slot_number} status`;
+
+                    tile.innerHTML = `
+                        <div class="slot-number">P${slot.slot_number}</div>
+                        <div class="slot-registration">${occupied ? vehicleBySlot.get(slot.slot_id) : (state === 'unavailable' ? 'Maintenance' : 'Empty')}</div>
+                        <div class="slot-status">${state.charAt(0).toUpperCase() + state.slice(1)}</div>
+                    `;
+
+                    // Toggle available/unavailable if not currently occupied by a car
+                    if (!occupied) {
+                        tile.onclick = async () => {
+                            const newStatus = slot.status === 'available' ? 'unavailable' : 'available';
+                            tile.style.opacity = '0.5';
+                            const { error: toggleError } = await supabase
+                                .from('parking_slots')
+                                .update({ status: newStatus })
+                                .eq('slot_id', slot.slot_id);
+
+                            if (toggleError) {
+                                alert('Could not update slot status: ' + toggleError.message);
+                            }
+                            await loadSlotMatrix();
+                        };
+                    }
+
+                    grid.appendChild(tile);
+                });
+
+            } catch (err) {
+                statusEl.textContent = '❌ Failed to load slots: ' + err.message;
+                statusEl.style.color = '#dc2626';
+            }
+        }
+
+        await loadSlotMatrix();
+    </script>
+
+    <script src="sidebar.js"></script>
+</body>
+</html>
