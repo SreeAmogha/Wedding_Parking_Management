@@ -90,29 +90,16 @@ def create_admin(email: str, password: str, name: str = "Admin User"):
 
         profile_data = {
             "id": user_id,
-            "auth_uid": user_id,
             "email": email,
-            "full_name": name,
-            "role": "admin"
+            "name": name,
+            "staff": True
         }
 
-        existing_profile = (
-            supabase.table("profiles")
-            .select("id")
-            .eq("auth_uid", user_id)
-            .maybe_single()
-            .execute()
-            .data
-        )
-        if existing_profile:
-            # Preserve the existing profile ID so parking-session foreign keys stay valid.
-            supabase.table("profiles").update({
-                "email": email,
-                "full_name": name,
-                "role": "admin"
-            }).eq("auth_uid", user_id).execute()
-        else:
-            supabase.table("profiles").insert(profile_data).execute()
+        # Upsert prevents duplicate profile records
+        supabase.table("profiles").upsert(
+            profile_data,
+            on_conflict="id"
+        ).execute()
 
         print("✅ Admin profile created/updated successfully!")
 
@@ -125,19 +112,11 @@ def create_admin(email: str, password: str, name: str = "Admin User"):
 
 if __name__ == "__main__":
 
-    admin_email = os.getenv(
-        "ADMIN_EMAIL",
-        "admin@example.com"
-    )
-
+    admin_email = os.getenv("ADMIN_EMAIL")
     admin_password = os.getenv("ADMIN_PASSWORD")
-    if not admin_password:
-        print("Set ADMIN_PASSWORD in the environment before creating an admin.")
+    if not admin_email or not admin_password:
+        print("Set ADMIN_EMAIL and ADMIN_PASSWORD before creating an admin.")
         sys.exit(1)
 
-    admin_name = os.getenv(
-        "ADMIN_NAME",
-        "Admin"
-    )
-
+    admin_name = os.getenv("ADMIN_NAME", "Admin")
     create_admin(admin_email, admin_password, admin_name)
