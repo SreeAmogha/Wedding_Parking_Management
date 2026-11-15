@@ -1,4 +1,3 @@
-
 const sidebarHTML = `
     <aside class="sidebar">
         <div class="sidebar-brand">
@@ -18,6 +17,10 @@ const sidebarHTML = `
                 <span>🚘</span> Entry / Exit
             </a>
 
+            <a href="parking-slots.html" data-page="parking-slots">
+                <span>🅿</span> Parking Slots
+            </a>
+
             <a href="history.html" data-page="history">
                 <span>◷</span> Parking History
             </a>
@@ -29,26 +32,52 @@ const sidebarHTML = `
 
         <div class="sidebar-footer">
             <p>Smart Wedding Parking</p>
-            <small>Attendant Panel</small>
+            <small id="sidebar-role-label">Staff Panel</small>
         </div>
     </aside>
 `;
 
-document.addEventListener("DOMContentLoaded", () => {
+function renderSidebar() {
     const container = document.getElementById("sidebar-container");
     if (!container) return;
 
     container.innerHTML = sidebarHTML;
 
     // Determine current page from filename
-    const path = window.location.pathname;
+    const path = window.location.pathname.toLowerCase();
     const filename = path.split('/').pop() || 'dashboard.html';
 
     let currentPage = 'dashboard';
-    if (filename.includes('entry-exit'))    currentPage = 'entry-exit';
-    else if (filename.includes('history'))  currentPage = 'history';
-    else if (filename.includes('events'))   currentPage = 'events';
+    if (filename.includes('entry-exit'))         currentPage = 'entry-exit';
+    else if (filename.includes('parking-slots'))  currentPage = 'parking-slots';
+    else if (filename.includes('history'))        currentPage = 'history';
+    else if (filename.includes('events'))         currentPage = 'events';
 
     const activeLink = container.querySelector(`[data-page="${currentPage}"]`);
     if (activeLink) activeLink.classList.add('active');
-});
+
+    // Dynamically update role label in footer if available
+    try {
+        import("./app.js").then(mod => {
+            if (!mod || !mod.supabase || !mod.getStaffProfile) return;
+            mod.supabase.auth.getSession().then(({ data }) => {
+                const session = data && data.session;
+                if (!session) return;
+                mod.getStaffProfile(session.user.id)
+                    .then(({ profile }) => {
+                        const footerRole = document.getElementById("sidebar-role-label");
+                        if (footerRole && profile) {
+                            if (profile.role === "admin") footerRole.textContent = "Administrator Panel";
+                            else footerRole.textContent = "Attendant Panel";
+                        }
+                    }).catch(() => {});
+            }).catch(() => {});
+        }).catch(() => {});
+    } catch (e) {}
+}
+
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", renderSidebar);
+} else {
+    renderSidebar();
+}

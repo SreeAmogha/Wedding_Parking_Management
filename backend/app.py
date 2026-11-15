@@ -1,3 +1,4 @@
+import datetime
 import os
 import re
 from pathlib import Path
@@ -18,8 +19,6 @@ load_dotenv(BASE_DIR / ".env")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_PUBLISHABLE_KEY = os.getenv("SUPABASE_PUBLISHABLE_KEY")
 SUPABASE_SECRET_KEY = os.getenv("SUPABASE_SECRET_KEY")
-
-print("Supabase URL loaded:", repr(SUPABASE_URL))
 
 if not all([
     SUPABASE_URL,
@@ -53,9 +52,8 @@ def response_error(message, status_code=400):
 
 
 def get_staff():
-    
-    """Validate the Supabase login token and staff profile."""
-
+    """Validate the Supabase login token and staff profile.
+    """
     header = request.headers.get("Authorization", "")
 
     if not header.startswith("Bearer "):
@@ -76,17 +74,21 @@ def get_staff():
 
         profile_result = (
             db.table("profiles")
-            .select("id, full_name, role")
-            .eq("id", str(user.id))
-            .single()
+            .select("id, auth_uid, full_name, role")
+            .or_(f"id.eq.{user.id},auth_uid.eq.{user.id}")
+            .maybe_single()
             .execute()
         )
 
-        profile = profile_result.data
+        profile = profile_result.data if profile_result is not None else None
 
         if not profile:
             return None, None, response_error(
                 "Staff profile not found.", 403
+            )
+        if profile.get("role") not in {"admin", "manager", "attendant"}:
+            return None, None, response_error(
+                "This account is not enabled for staff access.", 403
             )
 
         return user, profile, None
@@ -110,53 +112,53 @@ def require_staff():
 
 
 def run_query(query):
-    """Execute a Supabase query and return its data."""
+    """Execute a Supabase query and return its data, including empty maybe_single results."""
     result = query.execute()
-    return result.data
+    return result.data if result is not None else None
 
 
-# -------------------- FRONTEND --------------------
+# -------------------- FRONTEND STATIC ROUTES --------------------
 
 @app.get("/")
 def home():
-    return send_from_directory(
-        str(FRONTEND_DIR), "index.html"
-    )
-@app.get("/history")
-def parking_history_page():
-    return send_from_directory(
-        str(FRONTEND_DIR), "history.html"
-    )
+    return send_from_directory(str(FRONTEND_DIR), "index.html")
 
+@app.get("/dashboard")
+@app.get("/dashboard.html")
+def dashboard_page():
+    return send_from_directory(str(FRONTEND_DIR), "dashboard.html")
+
+@app.get("/entry-exit")
+@app.get("/entry-exit.html")
+def entry_exit_page():
+    return send_from_directory(str(FRONTEND_DIR), "entry-exit.html")
+
+@app.get("/history")
+@app.get("/history.html")
+def parking_history_page():
+    return send_from_directory(str(FRONTEND_DIR), "history.html")
 
 @app.get("/events")
+@app.get("/events.html")
 def events_page():
-    return send_from_directory(
-        str(FRONTEND_DIR), "events.html"
-    )
-
+    return send_from_directory(str(FRONTEND_DIR), "events.html")
 
 @app.get("/parking-slots")
+@app.get("/parking-slots.html")
 def parking_slots_page():
-    return send_from_directory(
-        str(FRONTEND_DIR), "parking-slots.html"
-    )
+    return send_from_directory(str(FRONTEND_DIR), "parking-slots.html")
+
 @app.get("/sidebar.js")
 def sidebar_js():
-    return send_from_directory(
-        str(FRONTEND_DIR), "sidebar.js"
-    )
+    return send_from_directory(str(FRONTEND_DIR), "sidebar.js")
+
 @app.get("/style.css")
 def stylesheet():
-    return send_from_directory(
-        str(FRONTEND_DIR), "style.css"
-    )
+    return send_from_directory(str(FRONTEND_DIR), "style.css")
 
 @app.get("/app.js")
 def frontend_app_js():
-    return send_from_directory(
-        str(FRONTEND_DIR), "app.js"
-    )
+    return send_from_directory(str(FRONTEND_DIR), "app.js")
 
 
 # -------------------- STAFF PROFILE --------------------
@@ -181,17 +183,112 @@ def get_events():
         return error
 
     try:
+        # Synchronize event dates using the database timezone.
+        try:
+            db.rpc("refresh_wedding_event_statuses").execute()
+        except Exception as sync_exc:
+            print("Daily event status sync notice:", sync_exc)
+        today = datetime.date.today().isoformat()
+
         events = run_query(
             db.table("wedding_events")
             .select("event_id, event_name, event_date, status")
-            .order("event_date")
+            .order("event_date", desc=True)
         )
 
-        return jsonify({"events": events})
+        return jsonify({"events": events, "today": today})
 
     except Exception as exc:
         print("EVENTS ERROR:", repr(exc))
-    return response_error("Could not load events.", 500)
+        return response_error("Could not load events: " + str(exc), 500)
+
+
+@app.post("/api/events")
+def create_event():
+    """Create a new wedding event."""
+    _, _, error = require_staff()
+
+    if error:
+        return error
+
+    body = request.get_json(silent=True) or {}
+    name = str(body.get("event_name", "")).strip()
+    event_date = str(body.get("event_date", "")).strip()
+    status = str(body.get("status", "auto")).strip().lower()
+
+    if not name:
+        return response_error("Event name is required.")
+    if not event_date:
+        return response_error("Event date is required.")
+
+    today = datetime.date.today().isoformat()
+    if status == "auto" or status not in {"planned", "active", "completed"}:
+        if event_date < today:
+            status = "completed"
+        elif event_date == today:
+            status = "active"
+        else:
+            status = "planned"
+
+    try:
+        new_event = run_query(
+            db.table("wedding_events")
+            .insert({
+                "event_name": name,
+                "event_date": event_date,
+                "status": status
+            })
+            .select()
+            .single()
+        )
+        return jsonify({
+            "message": "Event created successfully.",
+            "event": new_event
+        }), 201
+
+    except Exception as exc:
+        return response_error("Failed to create event: " + str(exc), 500)
+
+
+@app.put("/api/events/<int:event_id>")
+def update_event(event_id):
+    """Update event date and/or status."""
+    _, _, error = require_staff()
+
+    if error:
+        return error
+
+    body = request.get_json(silent=True) or {}
+    update_data = {}
+
+    if "event_name" in body:
+        update_data["event_name"] = str(body["event_name"]).strip()
+    if "event_date" in body:
+        update_data["event_date"] = str(body["event_date"]).strip()
+    if "status" in body:
+        st = str(body["status"]).strip().lower()
+        if st in {"planned", "active", "completed"}:
+            update_data["status"] = st
+
+    if not update_data:
+        return response_error("No fields provided to update.")
+
+    try:
+        updated = run_query(
+            db.table("wedding_events")
+            .update(update_data)
+            .eq("event_id", event_id)
+            .select()
+            .single()
+        )
+        return jsonify({
+            "message": "Event updated successfully.",
+            "event": updated
+        })
+
+    except Exception as exc:
+        return response_error("Failed to update event: " + str(exc), 500)
+
 
 # -------------------- PARKING DASHBOARD --------------------
 
@@ -268,7 +365,7 @@ def get_slots():
 
 @app.post("/api/entry")
 def register_entry():
-    _, _, error = require_staff()
+    _, profile, error = require_staff()
 
     if error:
         return error
@@ -315,7 +412,7 @@ def register_entry():
         )
 
     try:
-        # Check that the event exists and can accept entries.
+        # Check that the event exists and is ACTIVE.
         event = run_query(
             db.table("wedding_events")
             .select("event_id, status")
@@ -328,7 +425,7 @@ def register_entry():
 
         if event["status"] != "active":
             return response_error(
-                "Vehicle entry is allowed only for active events."
+                "Vehicle entry is allowed only for active events. Current event status is " + str(event["status"])
             )
 
         # Reuse an existing vehicle when its number is known.
@@ -362,7 +459,8 @@ def register_entry():
                 "register_vehicle_entry",
                 {
                     "p_event_id": event_id,
-                    "p_vehicle_id": vehicle_id
+                    "p_vehicle_id": vehicle_id,
+                    "p_recorded_by": profile["id"]
                 }
             )
         )
@@ -376,16 +474,16 @@ def register_entry():
         }), 201
 
     except Exception as exc:
-     import traceback
-    traceback.print_exc()
-    return response_error("Entry failed: " + str(exc), 400)
+        import traceback
+        traceback.print_exc()
+        return response_error("Entry failed: " + str(exc), 400)
 
 
 # -------------------- VEHICLE EXIT --------------------
 
 @app.post("/api/exit")
 def register_exit():
-    _, _, error = require_staff()
+    _, profile, error = require_staff()
 
     if error:
         return error
@@ -406,7 +504,8 @@ def register_exit():
             db.rpc(
                 "register_vehicle_exit",
                 {
-                    "p_registration_number": registration
+                    "p_registration_number": registration,
+                    "p_recorded_by": profile["id"]
                 }
             )
         )
@@ -441,7 +540,7 @@ def get_history():
             .select("""
                 entry_time,
                 exit_time,
-                vehicles(registration_number),
+                vehicles(registration_number, guest_name),
                 parking_slots(slot_number)
             """)
             .eq("event_id", event_id)
@@ -460,4 +559,4 @@ def get_history():
 # -------------------- START SERVER --------------------
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    app.run(host=os.getenv("FLASK_HOST", "127.0.0.1"), port=int(os.getenv("PORT", "5000")), debug=os.getenv("FLASK_DEBUG") == "1")
