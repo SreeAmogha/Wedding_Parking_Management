@@ -120,6 +120,7 @@ def run_query(query):
 # -------------------- FRONTEND STATIC ROUTES --------------------
 
 @app.get("/")
+@app.get("/index.html")
 def home():
     return send_from_directory(str(FRONTEND_DIR), "index.html")
 

@@ -100,7 +100,8 @@
     </main>
 
     <script type="module">
-        import { getStaffProfile, supabase } from './app.js';
+        import { getStaffProfile, supabase, signOutAndRedirect } 
+        from './app.js';
 
         // Auth guard
         const { data: { session } } = await supabase.auth.getSession();
@@ -116,8 +117,7 @@
 
         // Logout
         document.getElementById('logout-button').addEventListener('click', async () => {
-            await supabase.auth.signOut();
-            window.location.href = 'index.html';
+            await signOutAndRedirect();
         });
 
         // Sync event statuses automatically everyday based on current date

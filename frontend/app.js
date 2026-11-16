@@ -7,6 +7,15 @@ export const supabase = createClient(
     SUPABASE_URL,
     SUPABASE_PUBLISHABLE_KEY
 );
+export async function signOutAndRedirect() {
+    try {
+        await supabase.auth.signOut({ scope: 'local' });
+    } catch (error) {
+        console.error('Sign-out request failed:', error);
+    } finally {
+        window.location.replace('/');
+    }
+}
 
 export async function getStaffProfile(userId) {
     const { data, error } = await supabase

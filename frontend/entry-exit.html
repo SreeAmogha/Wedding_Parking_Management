@@ -143,14 +143,13 @@
     </main>
 
     <script type="module">
-        import { apiRequest, requireRole, supabase } from './app.js';
+        import { apiRequest, requireRole, signOutAndRedirect } from './app.js';
 
         // Allow all staff (admin, manager, attendant) on entry-exit
         const access = await requireRole(['admin', 'manager', 'attendant']);
         if (access) {
             document.getElementById('logout-button').addEventListener('click', async () => {
-                await supabase.auth.signOut();
-                window.location.replace('/');
+                await signOutAndRedirect();
             });
 
             const todayStr = new Date().toISOString().split('T')[0];
