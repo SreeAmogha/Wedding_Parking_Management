@@ -15,7 +15,7 @@
         <div class="page-header">
             <div>
                 <h1>Parking History</h1>
-                <p class="welcome-msg">View all parking sessions by wedding event</p>
+                <p class="welcome-msg">View all vehicle parking sessions and audit logs by wedding event</p>
             </div>
             <button id="logout-button" class="logout-btn">Sign Out</button>
         </div>
@@ -60,10 +60,38 @@
             </div>
         </section>
 
+        <!-- Bottom Quick Navigation Links -->
+        <div class="quick-links">
+            <a href="dashboard.html" class="quick-card">
+                <span class="quick-icon">▦</span>
+                <strong>Dashboard</strong>
+                <p>Live parking overview, slot statistics and current status</p>
+                <span class="quick-arrow">&rarr;</span>
+            </a>
+            <a href="entry-exit.html" class="quick-card">
+                <span class="quick-icon">🚘</span>
+                <strong>Register Entry / Exit</strong>
+                <p>Log vehicle arrivals and slot allocation for active events</p>
+                <span class="quick-arrow">&rarr;</span>
+            </a>
+            <a href="parking-slots.html" class="quick-card">
+                <span class="quick-icon">🅿</span>
+                <strong>Parking Slots</strong>
+                <p>Detailed view of all parking slots and availability</p>
+                <span class="quick-arrow">&rarr;</span>
+            </a>
+            <a href="events.html" class="quick-card">
+                <span class="quick-icon">📅</span>
+                <strong>Manage Events</strong>
+                <p>Create wedding events, update dates, and sync daily statuses</p>
+                <span class="quick-arrow">&rarr;</span>
+            </a>
+        </div>
+
     </main>
 
     <script type="module">
-        import { supabase } from './app.js';
+        import { supabase,signOutAndRedirect } from './app.js';
 
         // Auth guard
         const { data: { session } } = await supabase.auth.getSession();
@@ -71,8 +99,7 @@
 
         // Logout
         document.getElementById('logout-button').addEventListener('click', async () => {
-            await supabase.auth.signOut();
-            window.location.href = 'index.html';
+            await signOutAndRedirect();
         });
 
         // Load events into dropdown
@@ -80,8 +107,8 @@
             const select = document.getElementById('history-event-select');
             const { data: events, error } = await supabase
                 .from('wedding_events')
-                .select('event_id, event_name, event_date')
-                .order('event_date');
+                .select('event_id, event_name, event_date, status')
+                .order('event_date', { ascending: false });
 
             select.replaceChildren();
 
@@ -97,15 +124,19 @@
             defaultOpt.textContent = 'Select a wedding event';
             select.appendChild(defaultOpt);
 
-            events.forEach(e => {
+            events.forEach((e, idx) => {
                 const opt = document.createElement('option');
                 opt.value = e.event_id;
-                opt.textContent = `${e.event_name} (${e.event_date})`;
+                opt.textContent = `${e.event_name} (${e.event_date}) [${e.status.toUpperCase()}]`;
+                if (idx === 0) opt.selected = true; // Select latest event by default
                 select.appendChild(opt);
             });
-        }
 
-        await loadHistoryEvents();
+            // If an event is selected, load its history immediately
+            if (events && events.length > 0) {
+                await loadParkingHistory();
+            }
+        }
 
         // Load parking history for selected event
         async function loadParkingHistory() {
@@ -151,14 +182,14 @@
                 const isParked = !session.exit_time;
 
                 row.innerHTML = `
-                    <td>${session.vehicles?.registration_number ?? 'Unknown'}</td>
+                    <td><strong>${session.vehicles?.registration_number ?? 'Unknown'}</strong></td>
                     <td>${session.vehicles?.guest_name ?? '—'}</td>
-                    <td>P${session.parking_slots?.slot_number ?? '?'}</td>
-                    <td>${session.entry_time ? new Date(session.entry_time).toLocaleString() : '—'}</td>
-                    <td>${session.exit_time ? new Date(session.exit_time).toLocaleString() : 'Not exited'}</td>
+                    <td><span class="badge badge-planned">P${session.parking_slots?.slot_number ?? '?'}</span></td>
+                    <td>${session.entry_time ? new Date(session.entry_time).toLocaleString('en-IN') : '—'}</td>
+                    <td>${session.exit_time ? new Date(session.exit_time).toLocaleString('en-IN') : '<em>Currently Parked</em>'}</td>
                     <td>
-                        <span class="badge ${isParked ? 'badge-parked' : 'badge-exited'}">
-                            ${isParked ? 'Currently Parked' : 'Exited'}
+                        <span class="badge ${isParked ? 'badge-active' : 'badge-completed'}">
+                            ${isParked ? '● Parked' : '✓ Exited'}
                         </span>
                     </td>
                 `;
@@ -170,6 +201,9 @@
         }
 
         document.getElementById('load-history-btn').addEventListener('click', loadParkingHistory);
+        document.getElementById('history-event-select').addEventListener('change', loadParkingHistory);
+
+        await loadHistoryEvents();
     </script>
 
     <script src="sidebar.js"></script>

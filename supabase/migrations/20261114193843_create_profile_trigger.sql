@@ -1,0 +1,1 @@
+-- Superseded placeholder migration. Current Auth profile trigger is in the consolidated app migration.

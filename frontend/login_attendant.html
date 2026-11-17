@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Attendant Login – Wedding Parking Management</title>
+  <meta name="description" content="Login portal for parking attendants to manage bookings and parking slots for wedding events." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background: linear-gradient(135deg, #f5f7fa, #c3cfe2);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .card {
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(10px);
+      border-radius: 1rem;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+      padding: 2rem 3rem;
+      width: 100%;
+      max-width: 380px;
+      animation: slideUp 0.6s ease-out;
+    }
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    h1 { text-align: center; margin-bottom: 1.5rem; color: #333; }
+    input {
+      width: 100%;
+      padding: 0.75rem;
+      margin-bottom: 1rem;
+      border: 1px solid #ccc;
+      border-radius: 0.5rem;
+      font-size: 1rem;
+      transition: border-color 0.2s;
+    }
+    input:focus { border-color: #4a90e2; outline: none; }
+    button {
+      width: 100%;
+      padding: 0.75rem;
+      background: linear-gradient(90deg, #4a90e2, #357ab8);
+      border: none;
+      border-radius: 0.5rem;
+      color: #fff;
+      font-weight: 600;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: transform 0.1s ease-in-out;
+    }
+    button:hover { transform: translateY(-2px); }
+    .error { color: #c0392b; margin-top: 0.5rem; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Attendant Login</h1>
+    <form id="login-form">
+      <input type="email" id="email" placeholder="Email" required />
+      <input type="password" id="password" placeholder="Password" required />
+      <button type="submit">Sign In</button>
+      <div class="error" id="error-msg" role="alert" aria-live="polite"></div>
+    </form>
+  </div>
+
+  <script type="module">
+    import { getStaffProfile, supabase } from './app.js';
+    const form = document.getElementById('login-form');
+    const errorEl = document.getElementById('error-msg');
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      errorEl.textContent = '';
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        errorEl.textContent = error.message;
+        return;
+      }
+      // Verify role
+      const { profile, error: pErr } = await getStaffProfile(data.user.id);
+      if (pErr || !profile || profile.role !== 'attendant') {
+        await supabase.auth.signOut();
+        errorEl.textContent = 'Access denied: not an attendant account.';
+        return;
+      }
+      // Redirect to attendant dashboard (existing dashboard.html)
+      window.location.href = '/dashboard.html';
+    });
+  </script>
+</body>
+</html>

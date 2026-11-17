@@ -1,0 +1,2 @@
+-- Permissions are configured safely by database/01_create_tables.sql.
+-- Do not use broad GRANT ALL TO PUBLIC. Re-run the canonical schema script instead.

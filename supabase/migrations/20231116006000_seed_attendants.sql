@@ -1,0 +1,2 @@
+-- Superseded legacy schema migration. Intentionally a no-op.
+-- See 20261115010000_wedding_parking_app.sql for the current additive schema.

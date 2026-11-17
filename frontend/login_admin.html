@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Login – Wedding Parking Management</title>
+  <meta name="description" content="Administrator login portal for managing venues, drivers, bookings, and system settings for wedding parking management." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background: linear-gradient(135deg, #e0eafc, #cfdef3);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .card {
+      background: rgba(255, 255, 255, 0.9);
+      backdrop-filter: blur(12px);
+      border-radius: 1rem;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+      padding: 2rem 3rem;
+      width: 100%;
+      max-width: 380px;
+      animation: fadeIn 0.5s ease-out;
+    }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    h1 { text-align: center; margin-bottom: 1.5rem; color: #222; }
+    input {
+      width: 100%;
+      padding: 0.75rem;
+      margin-bottom: 1rem;
+      border: 1px solid #bbb;
+      border-radius: 0.5rem;
+      font-size: 1rem;
+      transition: border-color 0.2s;
+    }
+    input:focus { border-color: #3a7bd5; outline: none; }
+    button {
+      width: 100%;
+      padding: 0.75rem;
+      background: linear-gradient(90deg, #3a7bd5, #2b6cb0);
+      border: none;
+      border-radius: 0.5rem;
+      color: #fff;
+      font-weight: 600;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: transform 0.1s ease-in-out;
+    }
+    button:hover { transform: translateY(-2px); }
+    .error { color: #c0392b; margin-top: 0.5rem; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Admin Login</h1>
+    <form id="login-form">
+      <input type="email" id="email" placeholder="Email" required />
+      <input type="password" id="password" placeholder="Password" required />
+      <button type="submit">Sign In</button>
+      <div class="error" id="error-msg" role="alert" aria-live="polite"></div>
+    </form>
+  </div>
+
+  <script type="module">
+    import { getStaffProfile, supabase } from './app.js';
+    const form = document.getElementById('login-form');
+    const errorEl = document.getElementById('error-msg');
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      errorEl.textContent = '';
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        errorEl.textContent = error.message;
+        return;
+      }
+      const { profile, error: pErr } = await getStaffProfile(data.user.id);
+      if (pErr || !profile || profile.role !== 'admin') {
+        await supabase.auth.signOut();
+        errorEl.textContent = 'Access denied: not an admin account.';
+        return;
+      }
+      // Redirect to admin dashboard (new page to be created later)
+      window.location.href = '/dashboard.html';
+    });
+  </script>
+</body>
+</html>

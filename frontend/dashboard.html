@@ -20,6 +20,9 @@
             <button id="logout-button" class="logout-btn">Sign Out</button>
         </div>
 
+        <!-- Live Active Event Banner (Dynamically populated) -->
+        <div id="event-banner-container"></div>
+
         <!-- Stats cards -->
         <div class="stats-row">
             <div class="stat-card stat-total">
@@ -66,51 +69,130 @@
             <p id="grid-status" class="loading-msg">Loading parking slots...</p>
         </section>
 
-        <!-- Quick links -->
+        <!-- Bottom Quick Navigation Links -->
         <div class="quick-links">
-            <a href="entry-exit.html" class="quick-card">
-                <span>🚘</span>
+            <a href="entry-exit.html" class="quick-card" id="link-entry-exit">
+                <span class="quick-icon">🚘</span>
                 <strong>Register Entry / Exit</strong>
-                <p>Log vehicle arrivals and departures</p>
+                <p>Log guest vehicle arrivals, slot allocation, and departures</p>
+                <span class="quick-arrow">&rarr;</span>
             </a>
-            <a href="history.html" class="quick-card">
-                <span>📋</span>
+            <a href="parking-slots.html" class="quick-card" id="link-parking-slots">
+                <span class="quick-icon">🅿</span>
+                <strong>Parking Slots</strong>
+                <p>View detailed slot matrix, manage maintenance and availability</p>
+                <span class="quick-arrow">&rarr;</span>
+            </a>
+            <a href="history.html" class="quick-card" id="link-history">
+                <span class="quick-icon">📋</span>
                 <strong>Parking History</strong>
-                <p>View past parking sessions by event</p>
+                <p>Review completed and active parking sessions by event</p>
+                <span class="quick-arrow">&rarr;</span>
             </a>
-            <a href="events.html" class="quick-card">
-                <span>📅</span>
+            <a href="events.html" class="quick-card" id="link-events">
+                <span class="quick-icon">📅</span>
                 <strong>Manage Events</strong>
-                <p>Add and view wedding events</p>
+                <p>Create wedding events, update dates, and sync daily statuses</p>
+                <span class="quick-arrow">&rarr;</span>
             </a>
         </div>
 
     </main>
 
     <script type="module">
-        import { supabase } from './app.js';
+        import { getStaffProfile, supabase, signOutAndRedirect } 
+        from './app.js';
 
         // Auth guard
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { window.location.href = 'index.html'; }
 
         // Welcome message
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('full_name, role')
-            .eq('id', session.user.id)
-            .single();
+        const { profile } = await getStaffProfile(session.user.id);
 
         if (profile) {
             document.getElementById('welcome-msg').textContent =
-                `Welcome, ${profile.full_name} (${profile.role})`;
+                `Welcome back, ${profile.full_name} (${profile.role})`;
         }
 
         // Logout
         document.getElementById('logout-button').addEventListener('click', async () => {
-            await supabase.auth.signOut();
-            window.location.href = 'index.html';
+            await signOutAndRedirect();
         });
+
+        // Sync event statuses automatically everyday based on current date
+        async function syncDailyEventStatuses() {
+            try {
+                const todayStr = new Date().toISOString().split('T')[0];
+                const { data: events } = await supabase
+                    .from('wedding_events')
+                    .select('event_id, event_name, event_date, status');
+
+                if (!events) return;
+
+                let activeEventToday = null;
+
+                for (const ev of events) {
+                    let expectedStatus = ev.status;
+                    if (ev.event_date < todayStr && ev.status !== 'completed') {
+                        expectedStatus = 'completed';
+                    } else if (ev.event_date === todayStr && ev.status === 'planned') {
+                        expectedStatus = 'active';
+                    }
+
+                    if (expectedStatus !== ev.status) {
+                        await supabase
+                            .from('wedding_events')
+                            .update({ status: expectedStatus })
+                            .eq('event_id', ev.event_id);
+                        ev.status = expectedStatus;
+                    }
+
+                    if (ev.status === 'active') {
+                        activeEventToday = ev;
+                    }
+                }
+
+                // Render Banner
+                renderEventBanner(activeEventToday);
+            } catch (err) {
+                console.warn('Daily status sync notice:', err);
+            }
+        }
+
+        // Render Live Event Status Banner
+        function renderEventBanner(activeEvent) {
+            const container = document.getElementById('event-banner-container');
+            if (!container) return;
+
+            if (activeEvent) {
+                container.innerHTML = `
+                    <div class="active-banner">
+                        <div class="banner-left">
+                            <span class="pulse-dot"></span>
+                            <div>
+                                <strong>LIVE EVENT TODAY: ${activeEvent.event_name}</strong>
+                                <p>Event Date: ${activeEvent.event_date} &bull; Parking system is ACTIVE and ready to allocate parking slots.</p>
+                            </div>
+                        </div>
+                        <a href="entry-exit.html" class="btn-banner">Register Vehicle Entry &rarr;</a>
+                    </div>
+                `;
+            } else {
+                container.innerHTML = `
+                    <div class="warning-banner">
+                        <div class="banner-left">
+                            <span style="font-size:22px;">⚠️</span>
+                            <div>
+                                <strong>No Active Wedding Event Today</strong>
+                                <p>Vehicle registration requires an Active event. Update or add an event to enable parking entries.</p>
+                            </div>
+                        </div>
+                        <a href="events.html" class="btn-banner">Manage Events &rarr;</a>
+                    </div>
+                `;
+            }
+        }
 
         // Fetch and render parking grid
         async function refreshParkingGrid() {
@@ -173,6 +255,8 @@
             }
         }
 
+        // Initialize
+        await syncDailyEventStatuses();
         await refreshParkingGrid();
     </script>
 

@@ -1,0 +1,2 @@
+-- Legacy access script retired. It granted broad access to public roles.
+-- Run database/01_create_tables.sql for staff-only RLS and service-role backend access.
